@@ -36,6 +36,7 @@
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/common/centroid.h>
 #include <pcl/features/linear_least_squares_normal.h>
+#include <pcl/io/pcd_io.h>
 #include <boost/foreach.hpp>
 #include <string>
 #include <opencv2/core/mat.hpp>
@@ -55,7 +56,7 @@ class SLAD
     
     pub_ = n_.advertise<PointCloud>("autonomous_landing/landing_pointcloud", 2);
 
-    sub_ = n_.subscribe("/svo/global_map_pts", 1, &SLAD::pointCloudCallback, this);
+    sub_ = n_.subscribe("/autonomous_landing/test_pointcloud", 2, &SLAD::pointCloudCallback, this);
   }
 
   // %Tag(CALLBACK)%
@@ -63,7 +64,8 @@ void pointCloudCallback(const PointCloud::ConstPtr& msg)
 {
   PointCloud::Ptr temp_pc (new PointCloud);
   *temp_pc = *msg;
-
+  //pcl::io::savePCDFileASCII("test_pcd.pcd", *temp_pc);
+  
   PointCloud::Ptr landing_pc = splitPointCloud(temp_pc);
   landing_pc->header.frame_id = std::string("world");
  
@@ -89,7 +91,7 @@ auto calculateFlatness(PointCloud::Ptr cloud) -> float
   ne.computePointNormal(*cloud, indices, nx, ny, nz, curvature);
 
   
-  float fitness = std::abs(nz)/(1+10*std::abs(curvature)); // higher is better, max is 1, min is 0
+  float fitness = std::abs(nz)*(1-3*curvature); // higher is better, max is 1, min is 0
   return fitness;
 }
 

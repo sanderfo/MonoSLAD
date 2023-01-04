@@ -27,12 +27,17 @@
 // %Tag(FULLTEXT)%
 // %Tag(ROS_HEADER)%
 #include "ros/ros.h"
+#include <pcl_ros/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/io/pcd_io.h>
 // %EndTag(ROS_HEADER)%
 // %Tag(MSG_HEADER)%
 #include "std_msgs/String.h"
 // %EndTag(MSG_HEADER)%
 
 #include <sstream>
+
+using PointCloud = pcl::PointCloud<pcl::PointXYZI>;
 
 /**
  * This tutorial demonstrates simple sending of messages over the ROS system.
@@ -80,11 +85,11 @@ int main(int argc, char **argv)
    * buffer up before throwing some away.
    */
 // %Tag(PUBLISHER)%
-  ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
+  ros::Publisher chatter_pub = n.advertise<PointCloud>("autonomous_landing/test_pointcloud", 2);
 // %EndTag(PUBLISHER)%
 
 // %Tag(LOOP_RATE)%
-  ros::Rate loop_rate(10);
+  ros::Rate loop_rate(1);
 // %EndTag(LOOP_RATE)%
 
   /**
@@ -108,7 +113,7 @@ int main(int argc, char **argv)
 // %EndTag(FILL_MESSAGE)%
 
 // %Tag(ROSCONSOLE)%
-    ROS_INFO("%s", msg.data.c_str());
+    //ROS_INFO("%s", msg.data.c_str());
 // %EndTag(ROSCONSOLE)%
 
     /**
@@ -118,7 +123,10 @@ int main(int argc, char **argv)
      * in the constructor above.
      */
 // %Tag(PUBLISH)%
-    chatter_pub.publish(msg);
+    PointCloud test_cloud;
+    pcl::io::loadPCDFile("test_pcd.pcd", test_cloud);
+    test_cloud.header.frame_id = std::string("world");
+    chatter_pub.publish(test_cloud);
 // %EndTag(PUBLISH)%
 
 // %Tag(SPINONCE)%
