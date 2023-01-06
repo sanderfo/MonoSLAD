@@ -9,6 +9,8 @@ Panels:
         - /map1
         - /Image1
         - /PointCloud21
+        - /PointCloud22
+        - /Pose1
       Splitter Ratio: 0.529411792755127
     Tree Height: 300
   - Class: rviz/Selection
@@ -151,6 +153,21 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.10000000149011612
+      Class: rviz/Pose
+      Color: 255; 25; 0
+      Enabled: true
+      Head Length: 0.30000001192092896
+      Head Radius: 0.10000000149011612
+      Name: Pose
+      Shaft Length: 1
+      Shaft Radius: 0.05000000074505806
+      Shape: Arrow
+      Topic: /svo/pose_cam/0
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -179,7 +196,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 5.601428985595703
+      Distance: 24.024662017822266
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -194,10 +211,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.14460784196853638
+      Pitch: 0.414607971906662
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 5.566722869873047
+      Yaw: 5.041719436645508
     Saved: ~
 Window Geometry:
   Displays:
@@ -217,5 +234,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1659
-  X: 651
-  Y: 210
+  X: 737
+  Y: 119

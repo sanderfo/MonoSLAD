@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   message_generation
   pcl_ros
+  cv_bridge 
+  image_transport
 )
 
 ## System dependencies are found with CMake's conventions
@@ -106,7 +108,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES autonomous_landing
-   CATKIN_DEPENDS roscpp std_msgs message_runtime pcl_ros
+   CATKIN_DEPENDS roscpp std_msgs message_runtime pcl_ros cv_bridge image_transport
 #  DEPENDS system_lib
 )
 
@@ -213,11 +215,14 @@ install(DIRECTORY include/${PROJECT_NAME}/
 
 
 
-add_executable(talker src/talker.cpp)
-target_link_libraries(talker ${catkin_LIBRARIES})
-add_dependencies(talker autonomous_landing_generate_messages_cpp)
+add_executable(test_publisher src/test_publisher.cpp)
+target_link_libraries(test_publisher ${catkin_LIBRARIES})
+add_dependencies(test_publisher autonomous_landing_generate_messages_cpp)
 
-add_executable(listener src/listener.cpp)
-target_link_libraries(listener ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
-add_dependencies(listener autonomous_landing_generate_messages_cpp)
+add_executable(detector src/detector.cpp)
+target_link_libraries(detector ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+add_dependencies(detector autonomous_landing_generate_messages_cpp)
 
+add_executable(dense_verifier src/dense_verifier.cpp)
+target_link_libraries(dense_verifier ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+add_dependencies(dense_verifier autonomous_landing_generate_messages_cpp)
