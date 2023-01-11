@@ -20,6 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(PCL 1.8 REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(CUDA REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -123,9 +124,12 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
+  ${CUDA_INCLUDE_DIRS}
+  "../PlaneSweepLib/src/PSL"
 )
 
-link_directories(${PCL_LIBRARY_DIRS})
+link_directories(${PCL_LIBRARY_DIRS}
+                "../PlaneSweepLib")
 add_definitions(${PCL_DEFINITIONS})
 
 ## Declare a C++ library
@@ -213,7 +217,7 @@ install(DIRECTORY include/${PROJECT_NAME}/
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-
+add_library(utilities src/utilities.cpp)
 
 add_executable(test_publisher src/test_publisher.cpp)
 target_link_libraries(test_publisher ${catkin_LIBRARIES})
@@ -224,5 +228,5 @@ target_link_libraries(detector ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIB
 add_dependencies(detector autonomous_landing_generate_messages_cpp)
 
 add_executable(dense_verifier src/dense_verifier.cpp)
-target_link_libraries(dense_verifier ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(dense_verifier ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} utilities PSL)
 add_dependencies(dense_verifier autonomous_landing_generate_messages_cpp)
