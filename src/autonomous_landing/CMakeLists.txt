@@ -129,7 +129,7 @@ include_directories(
 )
 
 link_directories(${PCL_LIBRARY_DIRS}
-                "../PlaneSweepLib")
+                "../PlaneSweepLib/build/src/PSL")
 add_definitions(${PCL_DEFINITIONS})
 
 ## Declare a C++ library
@@ -228,5 +228,5 @@ target_link_libraries(detector ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIB
 add_dependencies(detector autonomous_landing_generate_messages_cpp)
 
 add_executable(dense_verifier src/dense_verifier.cpp)
-target_link_libraries(dense_verifier ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} utilities PSL)
+target_link_libraries(dense_verifier ${catkin_LIBRARIES} ${PCL_LIBRARIES} PSL ${OpenCV_LIBRARIES} ${CUDA_LIBRARIES} utilities)
 add_dependencies(dense_verifier autonomous_landing_generate_messages_cpp)

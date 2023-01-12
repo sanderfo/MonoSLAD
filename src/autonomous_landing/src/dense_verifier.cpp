@@ -20,7 +20,7 @@ class DenseVerifier
         n_.getParam("safetyZoneSize", safetyZoneSize);
         n_.getParam("sweep_n", sweep_n);
 
-        pub_ = n_.advertise<PointCloud>("autonomous_landing/landing_pointcloud", 2);
+        pub_ = n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
 
         imgsub_ = it.subscribe("/cam0/image_raw", 1, &DenseVerifier::imageCallback, this);
         posesub_ = n_.subscribe("/svo/backend_pose_imu", 2, &DenseVerifier::poseCallback, this);
@@ -69,6 +69,7 @@ class DenseVerifier
             pose_counter += 1;
 
             if(pose_counter == sweep_n) {
+                ROS_INFO("Planesweep:");
                 planeSweep();
                 pose_counter = 0;
                 
@@ -109,8 +110,74 @@ class DenseVerifier
             
         };
 
+        double avg_distance = 0; // in order to find a good z-range
+        int num_distances = 0;
+
+        Eigen::Vector3d ref_coordinate = cameras[0].getC();
+        for (int i = 0; i < sweep_n-1; i++)
+        {
+            for (int j = i+1; j < sweep_n; j++) 
+            {
+                avg_distance += (cameras[i].getC() - cameras[j].getC()).norm();
+                num_distances++;
+            }
+            
+        };
+
+        avg_distance /= num_distances;
+
+        float min_z = (float) (2.5f*avg_distance);
+        float max_z = (float) (100.0f*avg_distance);
+
+        PSL::CudaPlaneSweep cps;
+        cps.setZRange(min_z, max_z);
+        cps.setMatchWindowSize(7, 7);
+        cps.setNumPlanes(256);
+        cps.setOcclusionMode(PSL::PLANE_SWEEP_OCCLUSION_NONE);
+        cps.setPlaneGenerationMode(PSL::PLANE_SWEEP_PLANEMODE_UNIFORM_DISPARITY);
+        cps.setMatchingCosts(PSL::PLANE_SWEEP_ZNCC);
+        cps.setSubPixelInterpolationMode(PSL::PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
+        cps.enableOutputBestDepth();
+        cps.enableSubPixel();
+
+        int ref_id = -1;
+        for (int i = 0; i < sweep_n; i++)
+        {
+            int id = cps.addImage(image_sweeping_array[i]->image, cameras[i]);
+            if (i == sweep_n/2) ref_id = id;
+        }
+
+        cps.process(ref_id);
+        PSL::DepthMap<float, double> depth_map = cps.getBestDepth();
+
+        int width = depth_map.getWidth();
+        int height = depth_map.getHeight();
+
+        PointCloud::Ptr dense_pointcloud (new PointCloud);
+        dense_pointcloud->is_dense = true;
 
 
+        for (int i = 0; i < width; i++) 
+        {
+            for (int j = 0; j < height; j++)
+            {   Eigen::Vector4d eig_point = depth_map.unproject(i, j);
+                if (eig_point[3] > 0)
+                {
+                    ROS_INFO("homogenous component: %f", eig_point[3]);
+                    pcl::PointXYZI pcl_point;
+                
+                    pcl_point.x = eig_point[0];
+                    pcl_point.y = eig_point[1];
+                    pcl_point.z = eig_point[2];
+                    pcl_point.intensity = image_sweeping_array[ref_id]->image.at<double>(i, j);
+
+                    dense_pointcloud->push_back(pcl_point);
+
+                }
+            }
+        }
+
+        pub_.publish(dense_pointcloud);
     };
 };
 
