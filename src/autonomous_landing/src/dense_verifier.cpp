@@ -18,7 +18,9 @@ class DenseVerifier
     DenseVerifier() 
     {
         n_.getParam("safetyZoneSize", safetyZoneSize);
-        n_.getParam("sweep_n", sweep_n);
+        n_.getParam("sweepN", sweepN);
+
+        ROS_INFO("%f %d", safetyZoneSize, sweepN);
 
         pub_ = n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
 
@@ -51,13 +53,15 @@ class DenseVerifier
             std::pow(msg->pose.pose.position.x - current_pose.position.x, 2)
           + std::pow(msg->pose.pose.position.y - current_pose.position.y, 2)
           + std::pow(msg->pose.pose.position.z - current_pose.position.z, 2);
-        if(distanceSquared > 1) {
+        if(distanceSquared > 0.2) {
             pose_array[pose_counter] = msg->pose.pose;
             current_pose = msg->pose.pose;
 
             for(int i = 0; i < image_candidate_vector.size(); i++) {
                 if (msg->header.stamp.nsec == image_candidate_vector[i]->header.stamp.nsec 
                     && msg->header.stamp.sec == image_candidate_vector[i]->header.stamp.sec) {
+
+                    ROS_INFO("Found image match for pose, counter %d", pose_counter);
                     
                     image_sweeping_array[pose_counter] = cv_bridge::toCvShare(image_candidate_vector[i]);
                     image_candidate_vector.erase(image_candidate_vector.begin(), image_candidate_vector.begin()+i);
@@ -68,11 +72,10 @@ class DenseVerifier
 
             pose_counter += 1;
 
-            if(pose_counter == sweep_n) {
-                ROS_INFO("Planesweep:");
-                planeSweep();
-                pose_counter = 0;
-                
+            if (pose_counter == sweepN) {
+              ROS_INFO("Planesweep:");
+              planeSweep();
+              pose_counter = 0;
             }
         };
     }
@@ -90,7 +93,7 @@ class DenseVerifier
     ros::Subscriber landingsub_;
 
     float safetyZoneSize;
-    int sweep_n;
+    int sweepN;
     Eigen::Matrix3d K;
 
     std::vector<sensor_msgs::ImageConstPtr> image_candidate_vector;
@@ -102,32 +105,30 @@ class DenseVerifier
 
     void planeSweep() 
     {
-        std::vector<PSL::CameraMatrix<double>> cameras;
-
-        for (int c = 0; c < sweep_n; c++) 
-        {
-            cameras[c].setKRT(K, util::poseToRotation(pose_array[c]), util::poseToPosition(pose_array[c]));
-            
+        std::vector<PSL::CameraMatrix<double>> cameras(sweepN);
+        for (int c = 0; c < sweepN; c++) {
+            ROS_INFO("cam pos %f, %f, %f", util::poseToPosition(pose_array[c])[0], util::poseToPosition(pose_array[c])[1], util::poseToPosition(pose_array[c])[2]);
+          cameras[c].setKRT(K, util::poseToRotation(pose_array[c]),
+                            util::poseToPosition(pose_array[c]));
         };
+        
 
         double avg_distance = 0; // in order to find a good z-range
         int num_distances = 0;
 
         Eigen::Vector3d ref_coordinate = cameras[0].getC();
-        for (int i = 0; i < sweep_n-1; i++)
-        {
-            for (int j = i+1; j < sweep_n; j++) 
-            {
-                avg_distance += (cameras[i].getC() - cameras[j].getC()).norm();
-                num_distances++;
-            }
-            
+        for (int i = 0; i < sweepN - 1; i++) {
+          for (int j = i + 1; j < sweepN; j++) {
+            avg_distance += (cameras[i].getC() - cameras[j].getC()).norm();
+            num_distances++;
+          }
         };
 
         avg_distance /= num_distances;
 
-        float min_z = (float) (2.5f*avg_distance);
-        float max_z = (float) (100.0f*avg_distance);
+        float min_z = 2.5f*avg_distance;
+        float max_z = 100.0f*avg_distance;
+
 
         PSL::CudaPlaneSweep cps;
         cps.setZRange(min_z, max_z);
@@ -139,17 +140,25 @@ class DenseVerifier
         cps.setSubPixelInterpolationMode(PSL::PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
         cps.enableOutputBestDepth();
         cps.enableSubPixel();
+        
 
         int ref_id = -1;
-        for (int i = 0; i < sweep_n; i++)
-        {
-            int id = cps.addImage(image_sweeping_array[i]->image, cameras[i]);
-            if (i == sweep_n/2) ref_id = id;
+        for (int i = 0; i < sweepN; i++) {
+          int id = cps.addImage(image_sweeping_array[i]->image, cameras[i]);
+         
+          if (i == sweepN / 2)
+            ref_id = id;
         }
-
+        
         cps.process(ref_id);
+        
         PSL::DepthMap<float, double> depth_map = cps.getBestDepth();
 
+        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(0, 0), depth_map.getCam().getCam2Global()(0, 1), depth_map.getCam().getCam2Global()(0, 2), depth_map.getCam().getCam2Global()(0, 3));
+        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(1, 0), depth_map.getCam().getCam2Global()(1, 1), depth_map.getCam().getCam2Global()(1, 2), depth_map.getCam().getCam2Global()(1, 3));
+        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(2, 0), depth_map.getCam().getCam2Global()(2, 1), depth_map.getCam().getCam2Global()(2, 2), depth_map.getCam().getCam2Global()(2, 3));
+        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(3, 0), depth_map.getCam().getCam2Global()(3, 1), depth_map.getCam().getCam2Global()(3, 2), depth_map.getCam().getCam2Global()(3, 3));
+        
         int width = depth_map.getWidth();
         int height = depth_map.getHeight();
 
@@ -161,9 +170,9 @@ class DenseVerifier
         {
             for (int j = 0; j < height; j++)
             {   Eigen::Vector4d eig_point = depth_map.unproject(i, j);
+                
                 if (eig_point[3] > 0)
                 {
-                    ROS_INFO("homogenous component: %f", eig_point[3]);
                     pcl::PointXYZI pcl_point;
                 
                     pcl_point.x = eig_point[0];
@@ -176,7 +185,7 @@ class DenseVerifier
                 }
             }
         }
-
+        dense_pointcloud->header.frame_id = std::string("world");
         pub_.publish(dense_pointcloud);
     };
 };
