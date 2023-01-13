@@ -19,10 +19,15 @@ class DenseVerifier
     {
         n_.getParam("safetyZoneSize", safetyZoneSize);
         n_.getParam("sweepN", sweepN);
+        n_.getParam("matching_threshold", matching_threshold);
+        
 
-        ROS_INFO("%f %d", safetyZoneSize, sweepN);
+        ROS_INFO("%f %d %f", safetyZoneSize, sweepN, matching_threshold);
 
-        pub_ = n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
+        dense_pub_ =
+            n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
+        depth_pub_ =
+            it.advertise("autonomous_landing/depth_image", 1);
 
         imgsub_ = it.subscribe("/cam0/image_raw", 1, &DenseVerifier::imageCallback, this);
         posesub_ = n_.subscribe("/svo/backend_pose_imu", 2, &DenseVerifier::poseCallback, this);
@@ -53,7 +58,7 @@ class DenseVerifier
             std::pow(msg->pose.pose.position.x - current_pose.position.x, 2)
           + std::pow(msg->pose.pose.position.y - current_pose.position.y, 2)
           + std::pow(msg->pose.pose.position.z - current_pose.position.z, 2);
-        if(distanceSquared > 0.2) {
+        if(distanceSquared > 0.1) {
             pose_array[pose_counter] = msg->pose.pose;
             current_pose = msg->pose.pose;
 
@@ -87,13 +92,15 @@ class DenseVerifier
     private:
     ros::NodeHandle n_ = *(new ros::NodeHandle("~"));
     image_transport::ImageTransport it = *(new image_transport::ImageTransport(n_));
-    ros::Publisher pub_;
+    ros::Publisher dense_pub_;
+    image_transport::Publisher depth_pub_;
     image_transport::Subscriber imgsub_;
     ros::Subscriber posesub_;
     ros::Subscriber landingsub_;
 
     float safetyZoneSize;
     int sweepN;
+    float matching_threshold;
     Eigen::Matrix3d K;
 
     std::vector<sensor_msgs::ImageConstPtr> image_candidate_vector;
@@ -107,9 +114,11 @@ class DenseVerifier
     {
         std::vector<PSL::CameraMatrix<double>> cameras(sweepN);
         for (int c = 0; c < sweepN; c++) {
-            ROS_INFO("cam pos %f, %f, %f", util::poseToPosition(pose_array[c])[0], util::poseToPosition(pose_array[c])[1], util::poseToPosition(pose_array[c])[2]);
-          cameras[c].setKRT(K, util::poseToRotation(pose_array[c]),
-                            util::poseToPosition(pose_array[c]));
+          auto cam_R = util::poseToRotation(pose_array[c]);
+          cam_R.transposeInPlace();
+          auto cam_T = -cam_R * util::poseToPosition(pose_array[c]);
+          cameras[c].setKRT(K, cam_R,
+                            cam_T);
         };
         
 
@@ -134,12 +143,14 @@ class DenseVerifier
         cps.setZRange(min_z, max_z);
         cps.setMatchWindowSize(7, 7);
         cps.setNumPlanes(256);
-        cps.setOcclusionMode(PSL::PLANE_SWEEP_OCCLUSION_NONE);
+        cps.setOcclusionMode(PSL::PLANE_SWEEP_OCCLUSION_BEST_K);
+        cps.setOcclusionBestK(sweepN/2);
         cps.setPlaneGenerationMode(PSL::PLANE_SWEEP_PLANEMODE_UNIFORM_DISPARITY);
         cps.setMatchingCosts(PSL::PLANE_SWEEP_ZNCC);
         cps.setSubPixelInterpolationMode(PSL::PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
-        cps.enableOutputBestDepth();
-        cps.enableSubPixel();
+        cps.enableOutputBestDepth(true);
+        cps.enableOutputBestCosts(true);
+        cps.enableSubPixel(true);
         
 
         int ref_id = -1;
@@ -153,7 +164,11 @@ class DenseVerifier
         cps.process(ref_id);
         
         PSL::DepthMap<float, double> depth_map = cps.getBestDepth();
+        PSL::Grid<float> costs = cps.getBestCosts();
+        
 
+        
+        
         ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(0, 0), depth_map.getCam().getCam2Global()(0, 1), depth_map.getCam().getCam2Global()(0, 2), depth_map.getCam().getCam2Global()(0, 3));
         ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(1, 0), depth_map.getCam().getCam2Global()(1, 1), depth_map.getCam().getCam2Global()(1, 2), depth_map.getCam().getCam2Global()(1, 3));
         ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(2, 0), depth_map.getCam().getCam2Global()(2, 1), depth_map.getCam().getCam2Global()(2, 2), depth_map.getCam().getCam2Global()(2, 3));
@@ -171,7 +186,8 @@ class DenseVerifier
             for (int j = 0; j < height; j++)
             {   Eigen::Vector4d eig_point = depth_map.unproject(i, j);
                 
-                if (eig_point[3] > 0)
+                
+                if (eig_point[3] > 0 && costs(i, j) < matching_threshold)
                 {
                     pcl::PointXYZI pcl_point;
                 
@@ -182,12 +198,47 @@ class DenseVerifier
 
                     dense_pointcloud->push_back(pcl_point);
 
+                    
+
+                }
+                else {
+                  depth_map(i,j) = 0;
                 }
             }
         }
+        sensor_msgs::ImagePtr depth_msg = depth_map_to_msg(depth_map, min_z, max_z);
+        depth_pub_.publish(depth_msg);
         dense_pointcloud->header.frame_id = std::string("world");
-        pub_.publish(dense_pointcloud);
+        
+        dense_pub_.publish(dense_pointcloud);
     };
+
+    sensor_msgs::ImagePtr depth_map_to_msg(PSL::DepthMap<float, double> dM, float min_z,
+                             float max_z) {
+      cv::Mat_<float> depthsMat(dM.getHeight(), dM.getWidth(), dM.getDataPtr());
+        cv::Mat_<uint8_t> invDepthsMat(dM.getHeight(), dM.getWidth());
+        for (unsigned int y = 0; y < dM.getHeight(); y++)
+        {
+            for (unsigned int x = 0; x < dM.getWidth(); x++)
+            {
+                const float depth = depthsMat[y][x];
+                if (depth > 0)
+                {
+                    invDepthsMat[y][x] = 256*(1/depthsMat[y][x]-1/max_z)/(1/min_z - 1/max_z);
+                }
+                else
+                {
+                    invDepthsMat[y][x] = 0;
+                }
+            }
+        }
+
+        
+        
+        std_msgs::Header header;
+		    header.stamp = ros::Time::now();
+        return cv_bridge::CvImage(header, "mono8", invDepthsMat).toImageMsg();
+    }
 };
 
 auto main(int argc, char **argv) -> int
