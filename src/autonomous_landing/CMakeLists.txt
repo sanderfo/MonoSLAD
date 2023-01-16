@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_ros
   cv_bridge 
   image_transport
+  eigen_conversions
 )
 
 ## System dependencies are found with CMake's conventions
@@ -109,7 +110,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES autonomous_landing
-   CATKIN_DEPENDS roscpp std_msgs message_runtime pcl_ros cv_bridge image_transport
+   CATKIN_DEPENDS roscpp std_msgs message_runtime pcl_ros cv_bridge image_transport eigen_conversions
 #  DEPENDS system_lib
 )
 
