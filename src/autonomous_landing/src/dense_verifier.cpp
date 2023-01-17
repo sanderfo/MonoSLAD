@@ -20,34 +20,52 @@ class DenseVerifier
     public:
     DenseVerifier() 
     {
-        n_.getParam("safetyZoneSize", safetyZoneSize);
-        n_.getParam("sweepN", sweepN);
-        n_.getParam("matching_threshold", matching_threshold);
-        n_.getParam("distance_threshold_squared", distance_threshold_squared);
-        
-        ROS_INFO("%f %d %f", safetyZoneSize, sweepN, matching_threshold);
+      n_.getParam("safety_zone_size", safety_zone_size);
+      n_.getParam("sweep_n", sweep_n);
+      n_.getParam("matching_threshold", matching_threshold);
+      n_.getParam("distance_threshold", distance_threshold_squared);
+      n_.getParam("uniqueness_threshold", uniqueness_threshold);
+      
 
-        dense_pub_ =
-            n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
-        depth_pub_ =
-            it.advertise("autonomous_landing/depth_image", 1);
+      distance_threshold_squared *= distance_threshold_squared;
 
-        cam_pose_pub_ =
-            n_.advertise<geometry_msgs::PoseStamped>("autonomous_landing/cam_pose", 1);
+      ROS_INFO("%f %d %f", safety_zone_size, sweep_n, matching_threshold);
 
-        imgsub_ = it.subscribe("/cam0/image_raw", 1, &DenseVerifier::imageCallback, this);
-        posesub_ = n_.subscribe("/svo/backend_pose_imu", 2, &DenseVerifier::poseCallback, this);
-        landingsub_ = n_.subscribe("/autonomous_landing/landing_pointcloud", 2, &DenseVerifier::landingCallback, this);
+      dense_pub_ =
+          n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
+      depth_pub_ = it.advertise("autonomous_landing/depth_image", 1);
+      refimg_pub_ = it.advertise("autonomous_landing/ref_img", 1);
 
-        K(0,0) = 458.654;
-        K(0,1) = 0;
-        K(0,2) = 367.215;
-        K(1,0) = 0;
-        K(1,1) = 457.296;
-        K(1,2) = 248.375;
-        K(2,0) = 0;
-        K(2,1) = 0;
-        K(2,2) = 1;
+      cam_pose_pub_ = n_.advertise<geometry_msgs::PoseStamped>(
+          "autonomous_landing/cam_pose", 1);
+
+      imgsub_ = it.subscribe("/cam0/image_raw", 1,
+                             &DenseVerifier::imageCallback, this);
+      posesub_ = n_.subscribe("/svo/backend_pose_imu", 2,
+                              &DenseVerifier::poseCallback, this);
+      landingsub_ = n_.subscribe("/autonomous_landing/landing_pointcloud", 2,
+                                 &DenseVerifier::landingCallback, this);
+
+      K(0, 0) = 458.654;
+      K(0, 1) = 0;
+      K(0, 2) = 367.215;
+      K(1, 0) = 0;
+      K(1, 1) = 457.296;
+      K(1, 2) = 248.375;
+      K(2, 0) = 0;
+      K(2, 1) = 0;
+      K(2, 2) = 1;
+
+      Eigen::Matrix3d Rbc_mat;
+      Rbc_mat << 0.0148655429818, -0.999880929698, 0.00414029679422,
+                0.999557249008, 0.0149672133247, 0.025715529948,
+                -0.0257744366974, 0.00375618835797, 0.999660727178;
+
+      Tbc.topRightCorner(3, 1) = Eigen::Vector3d(-0.0216401454975, -0.064676986768, 0.00981073058949);
+      Tbc.topLeftCorner(3, 3) = Rbc_mat;
+
+      image_sweeping_array = std::vector<cv_bridge::CvImageConstPtr>(sweep_n);
+      pose_array = std::vector<geometry_msgs::Pose>(sweep_n);
   
     }
 
@@ -81,10 +99,12 @@ class DenseVerifier
 
             pose_counter += 1;
 
-            if (pose_counter == sweepN) {
+            if (pose_counter == sweep_n) {
+              pose_counter = 0;
               ROS_INFO("Planesweep:");
               planeSweep();
-              pose_counter = 0;
+              
+
             }
         };
     }
@@ -99,42 +119,53 @@ class DenseVerifier
     ros::Publisher dense_pub_;
     ros::Publisher cam_pose_pub_;
     image_transport::Publisher depth_pub_;
+    image_transport::Publisher refimg_pub_;
     tf::TransformBroadcaster br;
     image_transport::Subscriber imgsub_;
     ros::Subscriber posesub_;
     ros::Subscriber landingsub_;
 
-    float safetyZoneSize;
-    int sweepN;
+    float safety_zone_size;
+    int sweep_n;
     float matching_threshold;
     float distance_threshold_squared;
+    float uniqueness_threshold;
     Eigen::Matrix3d K;
+    Eigen::Matrix4d Tbc;
 
     std::vector<sensor_msgs::ImageConstPtr> image_candidate_vector;
-    std::array<cv_bridge::CvImageConstPtr, 10> image_sweeping_array;
+    std::vector<cv_bridge::CvImageConstPtr> image_sweeping_array;
 
-    std::array<geometry_msgs::Pose, 10> pose_array;
+    std::vector<geometry_msgs::Pose> pose_array;
     geometry_msgs::Pose current_pose;
     int pose_counter = 0;
 
     void planeSweep() 
     {
-        std::vector<PSL::CameraMatrix<double>> cameras(sweepN);
-        for (int c = 0; c < sweepN; c++) {
-          auto cam_R = util::poseToRotation(pose_array[c]);
-          //cam_R.transposeInPlace();
-          //auto cam_T = -cam_R * util::poseToPosition(pose_array[c]);
-          auto cam_T = util::poseToPosition(pose_array[c]);
-          cameras[c].setKRT(K, cam_R,
-                            cam_T);
-        };
-        
+      std::vector<PSL::CameraMatrix<double>> cameras(sweep_n);
+      std::vector<geometry_msgs::Pose> poses = pose_array;
+      std::vector<cv_bridge::CvImageConstPtr> images = image_sweeping_array;
+      for (int c = 0; c < sweep_n; c++) {
+        Eigen::Matrix3d cam_R;
+        Eigen::Vector3d cam_T;
+        Eigen::Matrix4d cam_pose;
+        cam_pose = util::poseToRotationAndTranslation(poses[c], Tbc);
+        cam_pose.topLeftCorner(3, 3).transposeInPlace();
+        cam_pose.topRightCorner(3, 1) = -cam_pose.topLeftCorner(3, 3) * cam_pose.topRightCorner(3, 1);
+        cam_pose = Tbc * cam_pose;
+        cam_R = cam_pose.topLeftCorner(3, 3);
+        cam_T = cam_pose.topRightCorner(3, 1);
+        // cam_R.transposeInPlace();
+        // auto cam_T = -cam_R * util::poseToPosition(pose_array[c]);
+        //auto cam_T = util::poseToPosition(poses[c]);
+        cameras[c].setKRT(K, cam_R, cam_T);
+      };
 
         double avg_distance = 0; // in order to find a good z-range
         int num_distances = 0;
 
-        for (int i = 0; i < sweepN - 1; i++) {
-          for (int j = i + 1; j < sweepN; j++) {
+        for (int i = 0; i < sweep_n - 1; i++) {
+          for (int j = i + 1; j < sweep_n; j++) {
             avg_distance += (cameras[i].getC() - cameras[j].getC()).norm();
             num_distances++;
           }
@@ -151,27 +182,29 @@ class DenseVerifier
         cps.setMatchWindowSize(7, 7);
         cps.setNumPlanes(256);
         cps.setOcclusionMode(PSL::PLANE_SWEEP_OCCLUSION_BEST_K);
-        cps.setOcclusionBestK(sweepN/2);
+        cps.setOcclusionBestK(sweep_n / 2);
         cps.setPlaneGenerationMode(PSL::PLANE_SWEEP_PLANEMODE_UNIFORM_DISPARITY);
         cps.setMatchingCosts(PSL::PLANE_SWEEP_ZNCC);
         cps.setSubPixelInterpolationMode(PSL::PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
         cps.enableOutputBestDepth(true);
         cps.enableOutputBestCosts(true);
+        cps.enableOuputUniquenessRatio(true);
         cps.enableSubPixel(true);
         
 
         int ref_id = -1;
-        for (int i = 0; i < sweepN; i++) {
-          int id = cps.addImage(image_sweeping_array[i]->image, cameras[i]);
-         
-          if (i == sweepN / 2)
+        for (int i = 0; i < sweep_n; i++) {
+          int id = cps.addImage(images[i]->image, cameras[i]);
+
+          if (i == sweep_n / 2)
             ref_id = id;
         }
-        
+
         cps.process(ref_id);
         
         PSL::DepthMap<float, double> depth_map = cps.getBestDepth();
         PSL::Grid<float> costs = cps.getBestCosts();
+        PSL::Grid<float> uniqueness_map = cps.getUniquenessRatios();
         
 
         
@@ -200,9 +233,7 @@ class DenseVerifier
 
         transform.setOrigin(t);
         transform.setRotation(q);
-
-        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "dense_cam"));
-
+        
         Eigen::Affine3d pose_cam;
         pose_cam.setIdentity();
         pose_cam.pretranslate(T);
@@ -221,13 +252,13 @@ class DenseVerifier
             {   Eigen::Vector4d eig_point = depth_map.unproject(i, j);
                 
                 
-                if (eig_point[3] > 0.5 && costs(i, j) < matching_threshold)
+                if (eig_point[3] > 0.5 && costs(i, j) < matching_threshold && uniqueness_map(i,j) > uniqueness_threshold)
                 {
                     
 
-                    eig_point[0] = (i - K(0,2))*depth_map(i,j)/K(0,0);
-                    eig_point[1] = (j - K(1,2))*depth_map(i,j)/K(1,1);
-                    eig_point[2] = depth_map(i,j);
+                    //eig_point[0] = (i - K(0,2))*depth_map(i,j)/K(0,0);
+                    //eig_point[1] = (j - K(1,2))*depth_map(i,j)/K(1,1);
+                    //eig_point[2] = depth_map(i,j);
 
                     //eig_point = pose_cam*eig_point;
 
@@ -237,7 +268,7 @@ class DenseVerifier
                     pcl_point.x = eig_point[0];
                     pcl_point.y = eig_point[1];
                     pcl_point.z = eig_point[2];
-                    pcl_point.intensity = image_sweeping_array[ref_id]->image.at<double>(i, j);
+                    pcl_point.intensity = images[ref_id]->image.at<double>(i, j);
 
                     dense_pointcloud->push_back(pcl_point);
 
@@ -249,11 +280,24 @@ class DenseVerifier
                 }
             }
         }
+        //br.sendTransform(tf::StampedTransform(Tbc, ros::Time::now(), "dense_body", "dense_cam"));
+        //br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "dense_body"));
+
         sensor_msgs::ImagePtr depth_msg = depth_map_to_msg(depth_map, min_z, max_z);
         depth_pub_.publish(depth_msg);
-        dense_pointcloud->header.frame_id = std::string("dense_cam");
+
+        auto refimg = images[sweep_n / 2]->image;
+        std_msgs::Header header;
+		    header.stamp = ros::Time::now();
+        
+
+        refimg_pub_.publish(cv_bridge::CvImage(header, "mono8", refimg).toImageMsg());
+        dense_pointcloud->header.frame_id = std::string("world");
+        pcl_conversions::toPCL(ros::Time::now(), dense_pointcloud->header.stamp);
         
         dense_pub_.publish(dense_pointcloud);
+        
+       
 
         
     };
