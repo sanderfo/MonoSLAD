@@ -33,3 +33,9 @@
 
 build
 devel
+MidAir/sensor_records.hdf5
+MidAir/PLE_training
+
+download_config.txt
+MidAir/.vscode/c_cpp_properties.json
+MidAir/.vscode/settings.json

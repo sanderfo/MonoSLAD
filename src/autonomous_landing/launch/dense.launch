@@ -1,12 +1,13 @@
 <launch>
 <group ns="dense">
-   4    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen">
+   4    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
             <param name="safety_zone_size" value="5.0" />
-            <param name="sweep_n" value="3" />
-            <param name="matching_threshold" value="0.03" />
-            <param name="distance_threshold" value="0.3" />
-            <param name="uniqueness_threshold" value="0.8" />
+            <param name="sweep_n" value="7" />
+            <param name="matching_threshold" value="0.05" />
+            <param name="distance_threshold" value="0.2" />
+            <param name="uniqueness_threshold" value="0.9" />
             <rosparam file="$(find autonomous_landing)param/euroc_mono.yaml" command="load" />
+            
         </node>
         
    5   </group>

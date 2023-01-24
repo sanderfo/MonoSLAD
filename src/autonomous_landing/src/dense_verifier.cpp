@@ -1,5 +1,4 @@
 #include "ros/ros.h"
-#include <tf/transform_broadcaster.h>
 #include <Eigen/Dense>
 #include <eigen_conversions/eigen_msg.h>
 #include <image_transport/image_transport.h>
@@ -39,9 +38,9 @@ class DenseVerifier
       cam_pose_pub_ = n_.advertise<geometry_msgs::PoseStamped>(
           "autonomous_landing/cam_pose", 1);
 
-      imgsub_ = it.subscribe("/cam0/image_raw", 1,
+      imgsub_ = it.subscribe("/cam0/image_raw", 60,
                              &DenseVerifier::imageCallback, this);
-      posesub_ = n_.subscribe("/svo/backend_pose_imu", 2,
+      posesub_ = n_.subscribe("/svo/backend_pose_imu", 1,
                               &DenseVerifier::poseCallback, this);
       landingsub_ = n_.subscribe("/autonomous_landing/landing_pointcloud", 2,
                                  &DenseVerifier::landingCallback, this);
@@ -61,6 +60,7 @@ class DenseVerifier
                 0.999557249008, 0.0149672133247, 0.025715529948,
                 -0.0257744366974, 0.00375618835797, 0.999660727178;
 
+      Tbc.setIdentity();
       Tbc.topRightCorner(3, 1) = Eigen::Vector3d(-0.0216401454975, -0.064676986768, 0.00981073058949);
       Tbc.topLeftCorner(3, 3) = Rbc_mat;
 
@@ -120,7 +120,6 @@ class DenseVerifier
     ros::Publisher cam_pose_pub_;
     image_transport::Publisher depth_pub_;
     image_transport::Publisher refimg_pub_;
-    tf::TransformBroadcaster br;
     image_transport::Subscriber imgsub_;
     ros::Subscriber posesub_;
     ros::Subscriber landingsub_;
@@ -146,18 +145,15 @@ class DenseVerifier
       std::vector<geometry_msgs::Pose> poses = pose_array;
       std::vector<cv_bridge::CvImageConstPtr> images = image_sweeping_array;
       for (int c = 0; c < sweep_n; c++) {
-        Eigen::Matrix3d cam_R;
-        Eigen::Vector3d cam_T;
-        Eigen::Matrix4d cam_pose;
-        cam_pose = util::poseToRotationAndTranslation(poses[c], Tbc);
+         
+        Eigen::Matrix4d cam_pose = util::poseToRotationAndTranslation(poses[c], Tbc)*Tbc;
+
         cam_pose.topLeftCorner(3, 3).transposeInPlace();
         cam_pose.topRightCorner(3, 1) = -cam_pose.topLeftCorner(3, 3) * cam_pose.topRightCorner(3, 1);
-        cam_pose = Tbc * cam_pose;
-        cam_R = cam_pose.topLeftCorner(3, 3);
-        cam_T = cam_pose.topRightCorner(3, 1);
-        // cam_R.transposeInPlace();
-        // auto cam_T = -cam_R * util::poseToPosition(pose_array[c]);
-        //auto cam_T = util::poseToPosition(poses[c]);
+
+        Eigen::Matrix3d cam_R = cam_pose.topLeftCorner(3, 3);
+        Eigen::Vector3d cam_T = cam_pose.topRightCorner(3, 1);
+        
         cameras[c].setKRT(K, cam_R, cam_T);
       };
 
@@ -206,37 +202,19 @@ class DenseVerifier
         PSL::Grid<float> costs = cps.getBestCosts();
         PSL::Grid<float> uniqueness_map = cps.getUniquenessRatios();
         
-
-        
-        
-        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(0, 0), depth_map.getCam().getCam2Global()(0, 1), depth_map.getCam().getCam2Global()(0, 2), depth_map.getCam().getCam2Global()(0, 3));
-        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(1, 0), depth_map.getCam().getCam2Global()(1, 1), depth_map.getCam().getCam2Global()(1, 2), depth_map.getCam().getCam2Global()(1, 3));
-        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(2, 0), depth_map.getCam().getCam2Global()(2, 1), depth_map.getCam().getCam2Global()(2, 2), depth_map.getCam().getCam2Global()(2, 3));
-        ROS_INFO("%f %f %f %f", depth_map.getCam().getCam2Global()(3, 0), depth_map.getCam().getCam2Global()(3, 1), depth_map.getCam().getCam2Global()(3, 2), depth_map.getCam().getCam2Global()(3, 3));
-        
         int width = depth_map.getWidth();
         int height = depth_map.getHeight();
 
         PointCloud::Ptr dense_pointcloud (new PointCloud);
         dense_pointcloud->is_dense = true;
 
-        tf::Transform transform;
-
-        auto R = depth_map.getCam().getR();
-        auto T = depth_map.getCam().getT();
-
-        tf::Vector3 t(T[0],T[1],T[2]);
-
-        Eigen::Quaterniond eigen_q(R);
-        tf::Quaternion q(eigen_q.x(),eigen_q.y(),eigen_q.z(),eigen_q.w());
-        
-
-        transform.setOrigin(t);
-        transform.setRotation(q);
+        Eigen::Matrix3d R = depth_map.getCam().getR();
+        Eigen::Vector3d T = depth_map.getCam().getT();
         
         Eigen::Affine3d pose_cam;
+        R.transposeInPlace();
         pose_cam.setIdentity();
-        pose_cam.pretranslate(T);
+        pose_cam.pretranslate(-R*T);
         pose_cam.rotate(R);
         
         geometry_msgs::PoseStamped pose_msg;
@@ -252,27 +230,18 @@ class DenseVerifier
             {   Eigen::Vector4d eig_point = depth_map.unproject(i, j);
                 
                 
-                if (eig_point[3] > 0.5 && costs(i, j) < matching_threshold && uniqueness_map(i,j) > uniqueness_threshold)
+                if (eig_point[3] > 0.5 && costs(i, j) < matching_threshold && uniqueness_map(i,j) < uniqueness_threshold)
                 {
                     
 
-                    //eig_point[0] = (i - K(0,2))*depth_map(i,j)/K(0,0);
-                    //eig_point[1] = (j - K(1,2))*depth_map(i,j)/K(1,1);
-                    //eig_point[2] = depth_map(i,j);
-
-                    //eig_point = pose_cam*eig_point;
-
-                    //eig_point = depth_map.getCam().getCam2Global().inverse() * eig_point;
                     pcl::PointXYZI pcl_point;
                 
                     pcl_point.x = eig_point[0];
                     pcl_point.y = eig_point[1];
                     pcl_point.z = eig_point[2];
-                    pcl_point.intensity = images[ref_id]->image.at<double>(i, j);
-
-                    dense_pointcloud->push_back(pcl_point);
-
+                    pcl_point.intensity = costs(i,j)*uniqueness_map(i,j);
                     
+                    dense_pointcloud->push_back(pcl_point);
 
                 }
                 else {
@@ -280,27 +249,31 @@ class DenseVerifier
                 }
             }
         }
-        //br.sendTransform(tf::StampedTransform(Tbc, ros::Time::now(), "dense_body", "dense_cam"));
-        //br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "dense_body"));
-
+        
         sensor_msgs::ImagePtr depth_msg = depth_map_to_msg(depth_map, min_z, max_z);
         depth_pub_.publish(depth_msg);
 
-        auto refimg = images[sweep_n / 2]->image;
+        cv::Mat refimg = images[sweep_n / 2]->image;
         std_msgs::Header header;
 		    header.stamp = ros::Time::now();
         
 
         refimg_pub_.publish(cv_bridge::CvImage(header, "mono8", refimg).toImageMsg());
         dense_pointcloud->header.frame_id = std::string("world");
+        
         pcl_conversions::toPCL(ros::Time::now(), dense_pointcloud->header.stamp);
         
         dense_pub_.publish(dense_pointcloud);
-        
-       
-
-        
     };
+
+    void print4(Eigen::Matrix4d pose_matrix) 
+    {
+
+      ROS_INFO("%f %f %f %f", pose_matrix(0,0), pose_matrix(0,1), pose_matrix(0, 2), pose_matrix(0,3));
+      ROS_INFO("%f %f %f %f", pose_matrix(1,0), pose_matrix(1,1), pose_matrix(1, 2), pose_matrix(1,3));
+      ROS_INFO("%f %f %f %f", pose_matrix(2,0), pose_matrix(2,1), pose_matrix(2, 2), pose_matrix(2,3));
+      ROS_INFO("%f %f %f %f", pose_matrix(3,0), pose_matrix(3,1), pose_matrix(3, 2), pose_matrix(3,3));
+    }
 
     sensor_msgs::ImagePtr depth_map_to_msg(PSL::DepthMap<float, double> dM, float min_z,
                              float max_z) {
