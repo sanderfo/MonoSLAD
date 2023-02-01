@@ -4,7 +4,7 @@
             <param name="safety_zone_size" value="5.0" />
             <param name="sweep_n" value="7" />
             <param name="matching_threshold" value="0.05" />
-            <param name="distance_threshold" value="0.2" />
+            <param name="distance_threshold" value="0.1" />
             <param name="uniqueness_threshold" value="0.9" />
             <rosparam file="$(find autonomous_landing)param/euroc_mono.yaml" command="load" />
             
