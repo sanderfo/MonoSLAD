@@ -8,6 +8,7 @@
 #include <geometry_msgs/TransformStamped.h>
 #include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/filters/radius_outlier_removal.h>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/eigen.hpp>
 #include <cv_bridge/cv_bridge.h>
@@ -27,6 +28,23 @@ class DenseVerifier
       n_.getParam("matching_threshold", matching_threshold);
       n_.getParam("distance_threshold", distance_threshold_squared);
       n_.getParam("uniqueness_threshold", uniqueness_threshold);
+      n_.getParam("pointcloud_filter_radius", filter_radius);
+      n_.getParam("pointcloud_filter_min_neighbours", filter_neighbours);
+
+      std::vector<double> k_list;
+      n_.getParam("camera/intrinsics", k_list);
+
+      std::string dist_model;
+      n_.getParam("camera/distortion_model", dist_model);
+      if (dist_model == "none") image_is_distorted = false;
+
+      n_.getParam("camera/distortion", dist_coeffs);
+      
+      
+      std::vector<double> tbc_list;
+      n_.getParam("T_B_C", tbc_list);
+
+
       
 
       distance_threshold_squared *= distance_threshold_squared;
@@ -34,23 +52,24 @@ class DenseVerifier
       ROS_INFO("%f %d %f", safety_zone_size, sweep_n, matching_threshold);
 
       dense_pub_ =
-          n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 1);
+          n_.advertise<PointCloud>("autonomous_landing/dense_pointcloud", 5);
       depth_pub_ = it.advertise("autonomous_landing/depth_image", 1);
       refimg_pub_ = it.advertise("autonomous_landing/ref_img", 1);
+      vbox_tf_pub = n_.advertise<geometry_msgs::TransformStamped>("cam_transform", 1);
 
-      imgsub_ = it.subscribe("/cam0/image_raw", 60,
+      imgsub_ = it.subscribe("cam", 60,
                              &DenseVerifier::imageCallback, this);
-      posesub_ = n_.subscribe("/svo/backend_pose_imu", 1,
+      posesub_ = n_.subscribe("pose", 1,
                               &DenseVerifier::poseCallback, this);
       landingsub_ = n_.subscribe("/autonomous_landing/landing_pointcloud", 2,
                                  &DenseVerifier::landingCallback, this);
 
-      K(0, 0) = 458.654;
+      K(0, 0) = k_list[0];
       K(0, 1) = 0;
-      K(0, 2) = 367.215;
+      K(0, 2) = k_list[2];
       K(1, 0) = 0;
-      K(1, 1) = 457.296;
-      K(1, 2) = 248.375;
+      K(1, 1) = k_list[1];
+      K(1, 2) = k_list[3];
       K(2, 0) = 0;
       K(2, 1) = 0;
       K(2, 2) = 1;
@@ -58,22 +77,23 @@ class DenseVerifier
       cv::eigen2cv(K, cv_K);
 
       Eigen::Matrix3d Rbc_mat;
-      Rbc_mat << 0.0148655429818, -0.999880929698, 0.00414029679422,
-                0.999557249008, 0.0149672133247, 0.025715529948,
-                -0.0257744366974, 0.00375618835797, 0.999660727178;
+      Rbc_mat << tbc_list[0], tbc_list[1], tbc_list[2],
+                tbc_list[4], tbc_list[5], tbc_list[6],
+                tbc_list[8], tbc_list[9], tbc_list[10];
 
       Tbc.setIdentity();
-      Tbc.topRightCorner(3, 1) = Eigen::Vector3d(-0.0216401454975, -0.064676986768, 0.00981073058949);
+      Tbc.topRightCorner(3, 1) = Eigen::Vector3d(tbc_list[3], tbc_list[7], tbc_list[11]);
       Tbc.topLeftCorner(3, 3) = Rbc_mat;
 
       image_sweeping_array = std::vector<cv::Mat>(sweep_n);
       pose_array = std::vector<geometry_msgs::Pose>(sweep_n);
+      
+        
   
     }
 
     void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
-        
-        image_candidate_vector.push_back(msg);
+      image_candidate_vector.push_back(msg);
     }
 
     void poseCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg) {
@@ -92,10 +112,16 @@ class DenseVerifier
 
                     ROS_INFO("Found image match for pose, counter %d", pose_counter);
                     
-                    cv::Mat distorted = cv_bridge::toCvShare(image_candidate_vector[i])->image;
                     cv::Mat undistorted;
+                    if(image_is_distorted) {
+                      cv::Mat distorted = cv_bridge::toCvShare(image_candidate_vector[i])->image;
+                      cv::undistort(distorted, undistorted, cv_K, dist_coeffs);
+                    }
+                    else {
+                      undistorted = cv_bridge::toCvShare(image_candidate_vector[i])->image;
+                    }
                     
-                    cv::undistort(distorted, undistorted, cv_K, dist_coeffs);
+                    
                     image_sweeping_array[pose_counter] = undistorted;
                     image_candidate_vector.erase(image_candidate_vector.begin(), image_candidate_vector.begin()+i);
                     break;
@@ -123,6 +149,7 @@ class DenseVerifier
     ros::NodeHandle n_ = *(new ros::NodeHandle("~"));
     image_transport::ImageTransport it = *(new image_transport::ImageTransport(n_));
     ros::Publisher dense_pub_;
+    ros::Publisher vbox_tf_pub;
     tf::TransformBroadcaster cam_pose_pub_;
     image_transport::Publisher depth_pub_;
     image_transport::Publisher refimg_pub_;
@@ -135,11 +162,13 @@ class DenseVerifier
     float matching_threshold;
     float distance_threshold_squared;
     float uniqueness_threshold;
+    float filter_radius;
+    int filter_neighbours;
     Eigen::Matrix3d K;
     cv::Mat cv_K;
     Eigen::Matrix4d Tbc;
-    std::vector<double> dist_coeffs {-0.28340811217029355, 0.07395907389290132, 0.00019359502856909603,
-    1.7618711454538528e-05};
+    bool image_is_distorted = true;
+    std::vector<double> dist_coeffs;
 
     std::vector<sensor_msgs::ImageConstPtr> image_candidate_vector;
     std::vector<cv::Mat> image_sweeping_array;
@@ -150,6 +179,7 @@ class DenseVerifier
 
     void planeSweep() 
     {
+      
       std::vector<PSL::CameraMatrix<double>> cameras(sweep_n);
       std::vector<geometry_msgs::Pose> poses = pose_array;
       
@@ -179,7 +209,7 @@ class DenseVerifier
         avg_distance /= num_distances;
 
         float min_z = 2.5f*avg_distance;
-        float max_z = 50.0f*avg_distance;
+        float max_z = 100.0f*avg_distance;
 
 
         PSL::CudaPlaneSweep cps;
@@ -214,7 +244,7 @@ class DenseVerifier
         int width = depth_map.getWidth();
         int height = depth_map.getHeight();
 
-        PointCloud::Ptr dense_pointcloud (new PointCloud);
+        PointCloud::Ptr dense_pointcloud (new PointCloud());
         dense_pointcloud->is_dense = true;
 
         Eigen::Matrix3d R = depth_map.getCam().getR();
@@ -237,13 +267,27 @@ class DenseVerifier
         transform.setOrigin(vec);
         transform.setRotation(quat);
         
-
-        
-
         ros::Time ros_time = ros::Time::now();
-        
-        
         cam_pose_pub_.sendTransform(tf::StampedTransform(transform, ros_time, "world", "cam"));
+        
+        geometry_msgs::TransformStamped vbox_transform_stamped;
+        vbox_transform_stamped.header.frame_id = std::string("world");
+        vbox_transform_stamped.header.stamp = ros_time;
+        vbox_transform_stamped.transform.translation.x = T[0];
+        vbox_transform_stamped.transform.translation.y = T[1];
+        vbox_transform_stamped.transform.translation.z = T[2];
+
+        vbox_transform_stamped.transform.rotation.x = eigen_q.x();
+        vbox_transform_stamped.transform.rotation.y = eigen_q.y();
+        vbox_transform_stamped.transform.rotation.z = eigen_q.z();
+        vbox_transform_stamped.transform.rotation.w = eigen_q.w();
+
+        vbox_tf_pub.publish(vbox_transform_stamped);
+
+        
+        
+        
+        
 
 
         for (int i = 0; i < width; i++) 
@@ -273,6 +317,14 @@ class DenseVerifier
                 }
             }
         }
+        PointCloud::Ptr filtered_pointcloud (new PointCloud());
+        pcl::RadiusOutlierRemoval<pcl::PointXYZI> remover;
+        remover.setInputCloud(dense_pointcloud);
+        remover.setMinNeighborsInRadius(filter_neighbours);
+        remover.setRadiusSearch(filter_radius);
+        
+        remover.filter(*filtered_pointcloud);
+
         
         sensor_msgs::ImagePtr depth_msg = depth_map_to_msg(depth_map, min_z, max_z);
         depth_pub_.publish(depth_msg);
@@ -283,11 +335,11 @@ class DenseVerifier
         
 
         refimg_pub_.publish(cv_bridge::CvImage(header, "mono8", refimg).toImageMsg());
-        dense_pointcloud->header.frame_id = std::string("cam");
+        filtered_pointcloud->header.frame_id = std::string("cam");
         
-        pcl_conversions::toPCL(ros::Time::now(), dense_pointcloud->header.stamp);
+        pcl_conversions::toPCL(ros_time, filtered_pointcloud->header.stamp);
         
-        dense_pub_.publish(dense_pointcloud);
+        dense_pub_.publish(filtered_pointcloud);
     };
 
     void print4(Eigen::Matrix4d pose_matrix) 

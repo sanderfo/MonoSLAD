@@ -1,7 +1,7 @@
 import rospy
 import rosbag
 from sensor_msgs.msg import Image, Imu
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3, PoseWithCovarianceStamped
 import h5py
 from cv_bridge import CvBridge
 import cv2
@@ -18,6 +18,8 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
     c_down = camera_data["color_down"]
     acc = file["trajectory_4000"]["imu"]["accelerometer"]
     gyr = file["trajectory_4000"]["imu"]["gyroscope"]
+    gt_rot = file["trajectory_4000"]["groundtruth"]["attitude"]
+    gt_pos = file["trajectory_4000"]["groundtruth"]["position"]
 
     bag = rosbag.Bag("midair.bag", "w")
 
@@ -25,7 +27,7 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
 
     img_number = 0
 
-    for i, (a, g) in enumerate(zip(acc, gyr)):
+    for i, (a, g, rot, pos) in enumerate(zip(acc, gyr, gt_rot, gt_pos)):
         t = 1000 + i/100.0
         
         imu_msg = Imu()
@@ -38,6 +40,8 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
         imu_msg.linear_acceleration = Vector3(a[0], a[1], a[2])
 
         bag.write("imu", imu_msg, ros_time)
+
+        
 
 
         if i % 4 == 0:
@@ -57,6 +61,24 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
 
             bag.write("cam_down", down_msg, ros_time)
             bag.write("cam_left", left_msg, ros_time)
+
+        if i % 8 == 0:
+            posestamped = PoseWithCovarianceStamped()
+
+            posestamped.pose.pose.orientation.x = rot[0]
+            posestamped.pose.pose.orientation.y = rot[1]
+            posestamped.pose.pose.orientation.z = rot[2]
+            posestamped.pose.pose.orientation.w = rot[3]
+
+        
+            posestamped.pose.pose.position.x = pos[0]
+            posestamped.pose.pose.position.y = pos[1]
+            posestamped.pose.pose.position.z = pos[2]
+
+            posestamped.header.stamp = ros_time
+            posestamped.header.frame_id = "world"
+
+            bag.write("gt_pose", posestamped, ros_time)
 
     bag.close()
 
