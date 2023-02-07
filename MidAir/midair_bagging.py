@@ -65,10 +65,10 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
         if i % 32 == 0:
             posestamped = PoseWithCovarianceStamped()
 
-            posestamped.pose.pose.orientation.x = rot[0]
-            posestamped.pose.pose.orientation.y = rot[1]
-            posestamped.pose.pose.orientation.z = rot[2]
-            posestamped.pose.pose.orientation.w = rot[3]
+            posestamped.pose.pose.orientation.w = rot[0]
+            posestamped.pose.pose.orientation.x = rot[1]
+            posestamped.pose.pose.orientation.y = rot[2]
+            posestamped.pose.pose.orientation.z = rot[3]
 
         
             posestamped.pose.pose.position.x = pos[0]
