@@ -1,7 +1,7 @@
-label: "midairdown"
+label: "midairleft"
 id: 412eab8e4058621f7036b5e765dfe812
 camera:
-  label: cam_down
+  label: cam_left
   id: 54812562fa109c40fe90b29a59dd7798
   line-delay-nanoseconds: 0
   image_height: 1024
@@ -11,7 +11,7 @@ camera:
   distortion_model: none
   distortion: [0.0, 0.0, 0.0,
   0.0]
-T_B_C: [0.0, -1.0, 0.0, 0.0,
-           1.0, 0.0, 0.0, 0.0,
+T_B_C: [1.0, 0.0, 0.0, 0.0,
+           0.0, 1.0, 0.0, 0.0,
            0.0, 0.0, 1.0, 0.0,
            0.0, 0.0, 0.0, 1.0]

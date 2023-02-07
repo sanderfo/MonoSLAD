@@ -119,7 +119,7 @@ class DenseVerifier
                       cv::undistort(distorted, undistorted, cv_K, dist_coeffs);
                     }
                     else {
-                      undistorted = cv_bridge::toCvShare(image_candidate_vector[i])->image;
+                      undistorted = cv_bridge::toCvShare(image_candidate_vector[i])->image.clone();
                     }
                     
                     
