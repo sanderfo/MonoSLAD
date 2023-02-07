@@ -23,6 +23,7 @@ class DenseVerifier
     public:
     DenseVerifier() 
     {
+      n_.getParam("image_scale", scale);
       n_.getParam("safety_zone_size", safety_zone_size);
       n_.getParam("sweep_n", sweep_n);
       n_.getParam("matching_threshold", matching_threshold);
@@ -157,6 +158,7 @@ class DenseVerifier
     ros::Subscriber posesub_;
     ros::Subscriber landingsub_;
 
+    float scale;
     float safety_zone_size;
     int sweep_n;
     float matching_threshold;

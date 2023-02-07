@@ -62,7 +62,7 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
             bag.write("cam_down", down_msg, ros_time)
             bag.write("cam_left", left_msg, ros_time)
 
-        if i % 8 == 0:
+        if i % 32 == 0:
             posestamped = PoseWithCovarianceStamped()
 
             posestamped.pose.pose.orientation.x = rot[0]
