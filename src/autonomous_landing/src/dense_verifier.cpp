@@ -26,12 +26,23 @@ class DenseVerifier
       n_.getParam("image_scale", scale);
       n_.getParam("safety_zone_size", safety_zone_size);
       n_.getParam("sweep_n", sweep_n);
+      
       n_.getParam("matching_threshold", matching_threshold);
       n_.getParam("distance_threshold", distance_threshold_squared);
       n_.getParam("uniqueness_threshold", uniqueness_threshold);
       n_.getParam("pointcloud_filter_radius", filter_radius);
       n_.getParam("pointcloud_filter_min_neighbours", filter_neighbours);
 
+      std::string occlusion_string;
+      n_.getParam("occlusion_mode", occlusion_string);
+      if (occlusion_string == "best_k")
+        occlusion_mode = PSL::PLANE_SWEEP_OCCLUSION_BEST_K;
+        
+      
+      else if(occlusion_string == "ref_split")
+        occlusion_mode = PSL::PLANE_SWEEP_OCCLUSION_REF_SPLIT;
+        
+      
       std::vector<double> k_list;
       n_.getParam("camera/intrinsics", k_list);
 
@@ -65,17 +76,30 @@ class DenseVerifier
       landingsub_ = n_.subscribe("/autonomous_landing/landing_pointcloud", 2,
                                  &DenseVerifier::landingCallback, this);
 
-      K(0, 0) = k_list[0];
+      if(scale < 0.9) {
+        K(0, 0) = scale*k_list[0];
+        K(0, 2) = scale*k_list[2];
+        K(1, 1) = scale*k_list[1];
+        K(1, 2) = scale*k_list[3];
+
+      }
+      else {
+        K(0, 0) = k_list[0];
+        K(0, 2) = k_list[2];
+        K(1, 1) = k_list[1];
+        K(1, 2) = k_list[3];
+
+      }
+
       K(0, 1) = 0;
-      K(0, 2) = k_list[2];
       K(1, 0) = 0;
-      K(1, 1) = k_list[1];
-      K(1, 2) = k_list[3];
       K(2, 0) = 0;
       K(2, 1) = 0;
       K(2, 2) = 1;
 
       cv::eigen2cv(K, cv_K);
+
+      
 
       Eigen::Matrix3d Rbc_mat;
       Rbc_mat << tbc_list[0], tbc_list[1], tbc_list[2],
@@ -113,13 +137,21 @@ class DenseVerifier
 
                     ROS_INFO("Found image match for pose, counter %d", pose_counter);
                     
+                    cv::Mat distorted = cv_bridge::toCvShare(image_candidate_vector[i])->image.clone();
+                    cv::Mat distorted_scaled;
+                    if(scale < 0.9) {
+                      cv::resize(distorted, distorted_scaled, cv::Size(distorted.cols*scale, distorted.rows*scale), cv::INTER_CUBIC);
+                    }
+                    else{
+                      distorted_scaled = distorted;
+                    }
                     cv::Mat undistorted;
                     if(image_is_distorted) {
-                      cv::Mat distorted = cv_bridge::toCvShare(image_candidate_vector[i])->image;
-                      cv::undistort(distorted, undistorted, cv_K, dist_coeffs);
+                       
+                      cv::undistort(distorted_scaled, undistorted, cv_K, dist_coeffs);
                     }
                     else {
-                      undistorted = cv_bridge::toCvShare(image_candidate_vector[i])->image.clone();
+                      undistorted = distorted_scaled;
                     }
                     
                     
@@ -161,6 +193,7 @@ class DenseVerifier
     float scale;
     float safety_zone_size;
     int sweep_n;
+    enum PSL::PlaneSweepOcclusionMode occlusion_mode = PSL::PLANE_SWEEP_OCCLUSION_NONE;
     float matching_threshold;
     float distance_threshold_squared;
     float uniqueness_threshold;
@@ -216,9 +249,9 @@ class DenseVerifier
 
         PSL::CudaPlaneSweep cps;
         cps.setZRange(min_z, max_z);
-        cps.setMatchWindowSize(7, 7);
+        cps.setMatchWindowSize(5, 5);
         cps.setNumPlanes(256);
-        cps.setOcclusionMode(PSL::PLANE_SWEEP_OCCLUSION_BEST_K);
+        cps.setOcclusionMode(occlusion_mode);
         cps.setOcclusionBestK(sweep_n / 2);
         cps.setPlaneGenerationMode(PSL::PLANE_SWEEP_PLANEMODE_UNIFORM_DISPARITY);
         cps.setMatchingCosts(PSL::PLANE_SWEEP_ZNCC);
@@ -246,8 +279,14 @@ class DenseVerifier
         int width = depth_map.getWidth();
         int height = depth_map.getHeight();
 
-        PointCloud::Ptr dense_pointcloud (new PointCloud());
-        dense_pointcloud->is_dense = true;
+        PointCloud::Ptr ordered_pointcloud (new PointCloud());
+        
+        //ordered_pointcloud->height = height;
+        //ordered_pointcloud->width = width;
+        ordered_pointcloud->is_dense = true;
+        //ordered_pointcloud->resize(height * width);
+        
+        
 
         Eigen::Matrix3d R = depth_map.getCam().getR();
         Eigen::Vector3d T = depth_map.getCam().getT();
@@ -311,7 +350,9 @@ class DenseVerifier
                     pcl_point.z = depth;
                     pcl_point.intensity = costs(i,j)*uniqueness_map(i,j);
                     
-                    dense_pointcloud->push_back(pcl_point);
+                    //ordered_pointcloud->at(i, j) = pcl_point;
+                    ordered_pointcloud->push_back(pcl_point);
+                    
 
                 }
                 else {
@@ -319,11 +360,15 @@ class DenseVerifier
                 }
             }
         }
+
+        ROS_INFO("img size %d", height*width);
+        ROS_INFO("pcl size %lu", ordered_pointcloud->size());
         PointCloud::Ptr filtered_pointcloud (new PointCloud());
         pcl::RadiusOutlierRemoval<pcl::PointXYZI> remover;
-        remover.setInputCloud(dense_pointcloud);
+        remover.setInputCloud(ordered_pointcloud);
         remover.setMinNeighborsInRadius(filter_neighbours);
         remover.setRadiusSearch(filter_radius);
+        
         
         remover.filter(*filtered_pointcloud);
 

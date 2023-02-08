@@ -3,18 +3,19 @@
    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="dense/cam" to="/cam_down" />
         <remap from="dense/pose" to="/gt_pose" />
-        <param name="image_scale" value="1.0" />
+        <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
-        <param name="sweep_n" value="5" />
-        <param name="matching_threshold" value="0.3" />
-        <param name="distance_threshold" value="0.1" />
+        <param name="sweep_n" value="3" />
+        <param name="occlusion_mode" value="ref_split" />
+        <param name="matching_threshold" value="0.15" />
+        <param name="distance_threshold" value="0.0" />
         <param name="uniqueness_threshold" value="0.95" />
-        <param name="pointcloud_filter_radius" value="1.0" />
-        <param name="pointcloud_filter_min_neighbours" value="5" />
+        <param name="pointcloud_filter_radius" value="0.2" />
+        <param name="pointcloud_filter_min_neighbours" value="20" />
             
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
             
     </node>
-        
+       
     
 </launch>

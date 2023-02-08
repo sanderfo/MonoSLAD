@@ -35,9 +35,9 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
         
         ros_time = rospy.Time.from_sec(t)
         imu_msg.header.stamp = ros_time
-        imu_msg.angular_velocity = Vector3(g[0], g[1], g[2])
+        imu_msg.angular_velocity = Vector3(g[1], g[0], -g[2])
         
-        imu_msg.linear_acceleration = Vector3(a[0], a[1], a[2])
+        imu_msg.linear_acceleration = Vector3(a[1], a[0], -a[2])
 
         bag.write("imu", imu_msg, ros_time)
 
@@ -62,18 +62,18 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
             bag.write("cam_down", down_msg, ros_time)
             bag.write("cam_left", left_msg, ros_time)
 
-        if i % 32 == 0:
+        if i % 8 == 0:
             posestamped = PoseWithCovarianceStamped()
 
             posestamped.pose.pose.orientation.w = rot[0]
-            posestamped.pose.pose.orientation.x = rot[1]
-            posestamped.pose.pose.orientation.y = rot[2]
-            posestamped.pose.pose.orientation.z = rot[3]
+            posestamped.pose.pose.orientation.x = rot[2]
+            posestamped.pose.pose.orientation.y = rot[1]
+            posestamped.pose.pose.orientation.z = -rot[3]
 
         
-            posestamped.pose.pose.position.x = pos[0]
-            posestamped.pose.pose.position.y = pos[1]
-            posestamped.pose.pose.position.z = pos[2]
+            posestamped.pose.pose.position.x = pos[1]
+            posestamped.pose.pose.position.y = pos[0]
+            posestamped.pose.pose.position.z = -pos[2]
 
             posestamped.header.stamp = ros_time
             posestamped.header.frame_id = "world"
