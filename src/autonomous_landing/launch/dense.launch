@@ -1,17 +1,22 @@
 <launch>
-<group ns="dense">
-   4    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
-            <param name="safety_zone_size" value="5.0" />
-            <param name="sweep_n" value="7" />
-            <param name="matching_threshold" value="0.1" />
-            <param name="distance_threshold" value="0.1" />
-            <param name="uniqueness_threshold" value="0.88" />
-            <param name="pointcloud_filter_radius" value="0.1" />
-            <param name="pointcloud_filter_min_neighbours" value="20" />
+
+   <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+      <remap from="dense/cam" to="/cam0/image_raw" />
+      <remap from="dense/pose" to="/svo/pose_cam/0" />
+      <param name="cam_frame_topic" value="cam_pos" />
+      <param name="image_scale" value="0.5" />
+      <param name="safety_zone_size" value="5.0" />
+      <param name="sweep_n" value="3" />
+      <param name="occlusion_mode" value="none" />
+      <param name="matching_threshold" value="0.1" />
+      <param name="distance_threshold" value="0.1" />
+      <param name="uniqueness_threshold" value="0.9" />
+      <param name="pointcloud_filter_radius" value="0.2" />
+      <param name="pointcloud_filter_min_neighbours" value="10" />
             
-            <rosparam file="$(find autonomous_landing)param/euroc_mono.yaml" command="load" />
+      <rosparam file="$(find autonomous_landing)param/euroc_mono.yaml" command="load" />
             
-        </node>
+   </node>
         
-   5   </group>
+     
 </launch>

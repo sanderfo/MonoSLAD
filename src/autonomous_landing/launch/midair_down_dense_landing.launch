@@ -5,7 +5,7 @@
         <remap from="dense/pose" to="/gt_pose" />
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
-        <param name="sweep_n" value="3" />
+        <param name="sweep_n" value="5" />
         <param name="occlusion_mode" value="ref_split" />
         <param name="matching_threshold" value="0.15" />
         <param name="distance_threshold" value="0.0" />
@@ -14,6 +14,13 @@
         <param name="pointcloud_filter_min_neighbours" value="10" />
             
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
+            
+    </node>
+    <node pkg="autonomous_landing" name="detector" type="detector" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
+        <param name="boxSize" value="2.0" />
+        <param name="minPoints" value="20" />
+        <param name="voxel_size" value="0.1" />
             
     </node>
        

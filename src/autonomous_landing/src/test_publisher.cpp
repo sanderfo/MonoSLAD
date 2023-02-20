@@ -30,6 +30,9 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
+#include <tf2_eigen/tf2_eigen.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
 // %EndTag(ROS_HEADER)%
 // %Tag(MSG_HEADER)%
 #include "std_msgs/String.h"
@@ -86,6 +89,7 @@ int main(int argc, char **argv)
    */
 // %Tag(PUBLISHER)%
   ros::Publisher chatter_pub = n.advertise<PointCloud>("autonomous_landing/test_pointcloud", 2);
+  tf2_ros::TransformBroadcaster cam_pose_pub_;
 // %EndTag(PUBLISHER)%
 
 // %Tag(LOOP_RATE)%
@@ -123,9 +127,29 @@ int main(int argc, char **argv)
      * in the constructor above.
      */
 // %Tag(PUBLISH)%
+    geometry_msgs::TransformStamped transform_stamped;
+        
+        
+    ros::Time ros_time = ros::Time::now();
+    Eigen::Quaterniond eigen_q = Eigen::Quaterniond(1,0,0,0);
+        
+        geometry_msgs::Vector3 vec;
+        vec.x = 0;
+        vec.y = 0;
+        vec.z = 0;
+        
+        transform_stamped.transform.translation = vec;
+        transform_stamped.transform.rotation = tf2::toMsg(eigen_q);
+    
+    transform_stamped.header.stamp = ros_time;
+    transform_stamped.header.frame_id = "world";
+    transform_stamped.child_frame_id = "cam";
+    cam_pose_pub_.sendTransform(transform_stamped);
+
     PointCloud test_cloud;
     pcl::io::loadPCDFile("test_pcd.pcd", test_cloud);
-    test_cloud.header.frame_id = std::string("world");
+    test_cloud.header.frame_id = std::string("cam");
+    pcl_conversions::toPCL(ros_time, test_cloud.header.stamp);
     chatter_pub.publish(test_cloud);
 // %EndTag(PUBLISH)%
 

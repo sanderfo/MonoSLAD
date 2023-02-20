@@ -1,0 +1,10 @@
+<launch>
+    <node pkg="autonomous_landing" name="detector" type="detector" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="detector/input_pointcloud" to="autonomous_landing/test_pointcloud" />
+        <param name="boxSize" value="2.0" />
+        <param name="minPoints" value="20" />
+            
+    </node>
+       
+    
+</launch>
