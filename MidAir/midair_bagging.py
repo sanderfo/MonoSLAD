@@ -1,7 +1,8 @@
 import rospy
 import rosbag
 from sensor_msgs.msg import Image, Imu
-from geometry_msgs.msg import Vector3, PoseWithCovarianceStamped
+from geometry_msgs.msg import Vector3, TransformStamped
+from tf2_msgs.msg import TFMessage
 import h5py
 from cv_bridge import CvBridge
 import cv2
@@ -63,22 +64,25 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
             bag.write("cam_left", left_msg, ros_time)
 
         if i % 8 == 0:
-            posestamped = PoseWithCovarianceStamped()
+            
+            posestamped = TransformStamped()
 
-            posestamped.pose.pose.orientation.w = rot[0]
-            posestamped.pose.pose.orientation.x = rot[2]
-            posestamped.pose.pose.orientation.y = rot[1]
-            posestamped.pose.pose.orientation.z = -rot[3]
+            posestamped.transform.rotation.w = rot[0]
+            posestamped.transform.rotation.x = rot[2]
+            posestamped.transform.rotation.y = rot[1]
+            posestamped.transform.rotation.z = -rot[3]
 
         
-            posestamped.pose.pose.position.x = pos[1]
-            posestamped.pose.pose.position.y = pos[0]
-            posestamped.pose.pose.position.z = -pos[2]
+            posestamped.transform.translation.x = pos[1]
+            posestamped.transform.translation.y = pos[0]
+            posestamped.transform.translation.z = -pos[2]
 
             posestamped.header.stamp = ros_time
+            posestamped.header.seq = 0
             posestamped.header.frame_id = "world"
+            posestamped.child_frame_id = "body"
 
-            bag.write("gt_pose", posestamped, ros_time)
+            bag.write("/midair/transform", posestamped, ros_time)
 
     bag.close()
 

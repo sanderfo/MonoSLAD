@@ -55,9 +55,6 @@ class DenseVerifier
       if (dist_model == "none") image_is_distorted = false;
 
       n_.getParam("camera/distortion", dist_coeffs);
-
-      tf_buffer = std::make_unique<tf2_ros::Buffer>();
-      tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
       
       
       std::vector<double> tbc_list;
@@ -79,10 +76,10 @@ class DenseVerifier
 
       imgsub_ = it.subscribe("cam", 60,
                              &DenseVerifier::imageCallback, this);
-      //posesub_ = n_.subscribe("pose", 1,
-                              //&DenseVerifier::poseCallback, this);
-      landingsub_ = n_.subscribe("/autonomous_landing/landing_pointcloud", 2,
-                                 &DenseVerifier::landingCallback, this);
+      
+                      
+      tf_buffer = std::make_unique<tf2_ros::Buffer>();
+      tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
 
       if(scale < 0.9) {
         K(0, 0) = scale*k_list[0];
@@ -130,7 +127,11 @@ class DenseVerifier
       cv::Mat distorted = cv_bridge::toCvShare(msg)->image.clone();
       geometry_msgs::Transform new_transform;
       try {
-        new_transform = tf_buffer->lookupTransform(cam_frame_topic, "world", msg->header.stamp, ros::Duration(6.0)).transform;
+        new_transform =
+            tf_buffer
+                ->lookupTransform(cam_frame_topic, "world", msg->header.stamp,
+                                  ros::Duration(7.0))
+                .transform;
       }
       catch (tf2::TransformException& e) {
         ROS_INFO("%s",e.what());
@@ -196,31 +197,21 @@ class DenseVerifier
         
     }
 
-    void poseCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg) {
-        
-        
-    }
-
-    void landingCallback(const PointCloud::ConstPtr& msg) {
-        
-    }
+    
 
     private:
     ros::NodeHandle n_ = *(new ros::NodeHandle("~"));
     image_transport::ImageTransport it = *(new image_transport::ImageTransport(n_));
     ros::Publisher dense_pub_;
     ros::Publisher vbox_tf_pub;
-    tf2_ros::TransformBroadcaster cam_pose_pub_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener{nullptr};
-    std::string cam_frame_topic;
+    std::string cam_frame_topic = "dense_cam";
     image_transport::Publisher depth_pub_;
     image_transport::Publisher refimg_pub_;
     image_transport::Publisher refimg_pub2_;
     image_transport::Publisher refimg_pub3_;
     image_transport::Subscriber imgsub_;
-    ros::Subscriber posesub_;
-    ros::Subscriber landingsub_;
 
     float scale;
     float safety_zone_size;
@@ -239,11 +230,13 @@ class DenseVerifier
 
     std::vector<cv::Mat> image_sweeping_array;
 
+    bool use_tf_transforms = false;
+    bool poses_supplied = false;
     std::vector<geometry_msgs::Transform> transform_array;
     geometry_msgs::Transform current_transform;
     ros::Time ref_stamp;
     int image_counter = 0;
-    bool first_tf = true;
+    
 
     void planeSweep() 
     {
@@ -346,15 +339,15 @@ class DenseVerifier
        
         transform_stamped.transform.rotation = tf2::toMsg(eigen_q);
         
-        ros::Time ros_time = ros::Time::now();
-        transform_stamped.header.stamp = ros_time;
+        //ros::Time ros_time = ros::Time::now();
+        transform_stamped.header.stamp = ref_stamp;
         transform_stamped.header.frame_id = "world";
         transform_stamped.child_frame_id = "dense_cam";
-        cam_pose_pub_.sendTransform(transform_stamped);
-        
+        //T_bw_pub_.sendTransform(transform_stamped);
+
         geometry_msgs::TransformStamped vbox_transform_stamped;
         vbox_transform_stamped.header.frame_id = std::string("world");
-        vbox_transform_stamped.header.stamp = ros_time;
+        vbox_transform_stamped.header.stamp = ref_stamp;
         vbox_transform_stamped.transform.translation.x = T[0];
         vbox_transform_stamped.transform.translation.y = T[1];
         vbox_transform_stamped.transform.translation.z = T[2];
@@ -390,7 +383,7 @@ class DenseVerifier
                     pcl_point.y = (j - K(1,2))*depth/K(1,1);
                     pcl_point.z = depth;
                     
-                    pcl_point.intensity = max_z;//refimg.at<uint8_t>(j,i);
+                    pcl_point.intensity = refimg.at<uint8_t>(j,i);
                     
                     //ordered_pointcloud->at(i, j) = pcl_point;
                     ordered_pointcloud->push_back(pcl_point);
@@ -418,16 +411,15 @@ class DenseVerifier
 
         
         std_msgs::Header header;
-		    header.stamp = ros_time;
+		    header.stamp = ref_stamp;
         
 
         refimg_pub_.publish(cv_bridge::CvImage(header, "mono8", refimg).toImageMsg());
         refimg_pub2_.publish(cv_bridge::CvImage(header, "mono8", image_sweeping_array[0]).toImageMsg());
         refimg_pub3_.publish(cv_bridge::CvImage(header, "mono8", image_sweeping_array[2]).toImageMsg());
-        
-        
+
         filtered_pointcloud->header.frame_id = cam_frame_topic;
-        
+
         pcl_conversions::toPCL(ref_stamp, filtered_pointcloud->header.stamp);
         
         dense_pub_.publish(filtered_pointcloud);
@@ -481,6 +473,7 @@ auto main(int argc, char **argv) -> int
   
   
 // %Tag(SPIN)%
+
   ros::spin();
 // %EndTag(SPIN)%
 

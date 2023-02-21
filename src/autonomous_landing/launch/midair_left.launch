@@ -2,7 +2,9 @@
 
    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="dense/cam" to="/cam_left" />
-        <remap from="dense/pose" to="/gt_pose" />
+        <param name="use_tf_transforms" value="false" />
+        <param name="poses_supplied" value="false" />
+        <param name="cam_frame_topic" value="dense_cam" />
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
         <param name="sweep_n" value="3" />
@@ -10,11 +12,19 @@
         <param name="matching_threshold" value="0.3" />
         <param name="distance_threshold" value="0.1" />
         <param name="uniqueness_threshold" value="0.95" />
-        <param name="pointcloud_filter_radius" value="0.4" />
-        <param name="pointcloud_filter_min_neighbours" value="10" />
+        <param name="pointcloud_filter_radius" value="0.2" />
+        <param name="pointcloud_filter_min_neighbours" value="20" />
             
         <rosparam file="$(find autonomous_landing)param/midair_left.yaml" command="load" />
             
+    </node>
+    <node pkg="autonomous_landing" name="framer" type="frame_modernizer" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="framer/body" to="/midair/transform" />
+        <param name="poses_supplied" value="false" />
+        
+    </node>
+    <node pkg="tf2_ros" name="body_cam_broadcaster" type="static_transform_publisher" args="0 0 0 -0.707 0 0 0.707 body dense_cam" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+       <param name="/use_sim_time" value="true" />
     </node>
         
     
