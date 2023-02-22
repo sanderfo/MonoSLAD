@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge 
   image_transport
   eigen_conversions
+  voxblox_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -55,7 +56,7 @@ find_package(CUDA REQUIRED)
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
-  Num.msg
+  
 )
 
 ## Generate services in the 'srv' folder
@@ -110,7 +111,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES autonomous_landing
-   CATKIN_DEPENDS roscpp std_msgs message_runtime pcl_ros cv_bridge image_transport eigen_conversions
+   CATKIN_DEPENDS roscpp std_msgs message_runtime pcl_ros cv_bridge image_transport eigen_conversions voxblox_msgs
 #  DEPENDS system_lib
 )
 

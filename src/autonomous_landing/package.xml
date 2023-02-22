@@ -67,6 +67,8 @@
   <exec_depend>image_transport</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>eigen_conversions</exec_depend>
+ 
+  <depend>voxblox_msgs</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

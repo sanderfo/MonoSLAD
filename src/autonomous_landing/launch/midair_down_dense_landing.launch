@@ -2,13 +2,16 @@
 
    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="dense/cam" to="/cam_down" />
-        <remap from="dense/pose" to="/gt_pose" />
+        <param name="use_tf_transforms" value="false" />
+        <param name="poses_supplied" value="false" />
+        <param name="cam_frame_topic" value="dense_cam" />
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
-        <param name="sweep_n" value="5" />
-        <param name="occlusion_mode" value="ref_split" />
-        <param name="matching_threshold" value="0.15" />
-        <param name="distance_threshold" value="0.0" />
+        <param name="sweep_n" value="3" />
+        <param name="window_size" value="7" />
+        <param name="occlusion_mode" value="none" />
+        <param name="matching_threshold" value="0.5" />
+        <param name="distance_threshold" value="0.1" />
         <param name="uniqueness_threshold" value="0.95" />
         <param name="pointcloud_filter_radius" value="0.2" />
         <param name="pointcloud_filter_min_neighbours" value="10" />
@@ -16,8 +19,18 @@
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
             
     </node>
+    <node pkg="autonomous_landing" name="framer" type="frame_modernizer" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="framer/body" to="/midair/transform" />
+        <param name="poses_supplied" value="false" />
+        
+    </node>
+    <node pkg="tf2_ros" name="body_cam_broadcaster" type="static_transform_publisher" args="0 0 0 1 0 0 0 body dense_cam" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+       <param name="/use_sim_time" value="true" />
+    </node>
+
     <node pkg="autonomous_landing" name="detector" type="detector" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
+        <remap from="detector/input_mesh" to="/voxblox_esdf/mesh" />
         <param name="boxSize" value="2.0" />
         <param name="minPoints" value="20" />
         <param name="voxel_size" value="0.1" />

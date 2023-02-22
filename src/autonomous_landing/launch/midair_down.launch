@@ -8,9 +8,10 @@
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
         <param name="sweep_n" value="3" />
-        <param name="occlusion_mode" value="ref_split" />
-        <param name="matching_threshold" value="0.15" />
-        <param name="distance_threshold" value="0.0" />
+        <param name="window_size" value="7" />
+        <param name="occlusion_mode" value="none" />
+        <param name="matching_threshold" value="0.5" />
+        <param name="distance_threshold" value="0.1" />
         <param name="uniqueness_threshold" value="0.95" />
         <param name="pointcloud_filter_radius" value="0.2" />
         <param name="pointcloud_filter_min_neighbours" value="10" />

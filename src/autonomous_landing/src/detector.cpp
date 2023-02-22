@@ -16,6 +16,7 @@
 #include <string>
 #include <opencv2/core/mat.hpp>
 #include "opencv2/imgproc.hpp"
+#include <voxblox_msgs/Mesh.h>
 
 using PointCloudIntensity = pcl::PointCloud<pcl::PointXYZI>;
 using PointCloudNormal = pcl::PointCloud<pcl::PointXYZRGB>;
@@ -26,15 +27,12 @@ class NormalEstimationOMP : public pcl::NormalEstimationOMP<pcl::PointXYZI, pcl:
     return xyz_centroid_;
   }
 };
-class DenseGrid {
-  private:
-  std::vector<std::vector<PointCloudIntensity>> clouds_;
 
-};
 class SLAD
 {
   public:
   SLAD() {
+    
     n_.getParam("boxSize", boxSize);
     n_.getParam("minPoints", minPoints);
     n_.getParam("flatness_requirement", flatness_requirement);
@@ -42,12 +40,82 @@ class SLAD
 
     ROS_INFO("box, min, flat: %f, %d, %f", boxSize, minPoints, flatness_requirement);
     
-    pub_ = n_.advertise<PointCloudNormal>("landing_pointcloud", 2);
+    //pub_ = n_.advertise<PointCloudNormal>("landing_pointcloud", 2);
+    norm_pub_ = n_.advertise<PointCloudNormal>("normal_pointcloud", 2);
 
-    sub_ = n_.subscribe("input_pointcloud", 2, &SLAD::pointCloudCallback, this);
+    //sub_ = n_.subscribe("input_pointcloud", 2, &SLAD::pointCloudCallback, this);
+    mesh_sub_ = n_.subscribe("input_mesh", 2, &SLAD::meshCallback, this);
     tf_buffer = std::make_unique<tf2_ros::Buffer>();
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
     global_landing_map->header.frame_id = "world";
+  }
+
+  //largely derived from voxblox
+  void meshCallback(const voxblox_msgs::Mesh::ConstPtr& msg)
+  {
+    
+    PointCloudNormal cloud;
+    for(auto meshblock : msg->mesh_blocks)
+    {
+      if(meshblock.x.size() == 0) continue;
+      pcl::PointXYZRGB point;
+      
+      //Eigen::Vector3d origin {meshblock.index[0], meshblock.index[1], meshblock.index[2]};
+      std::vector<Eigen::Vector3d> vertices;
+      for(int i = 0; i < meshblock.x.size(); ++i)
+      {
+        Eigen::Vector3d vertex;
+
+        constexpr float point_conv_factor =
+          2.0f / std::numeric_limits<uint16_t>::max();
+      vertex[0] =
+          (static_cast<float>(meshblock.x[i]) * point_conv_factor +
+           static_cast<float>(meshblock.index[0])) *
+          msg->block_edge_length;
+      vertex[1] =
+          (static_cast<float>(meshblock.y[i]) * point_conv_factor +
+           static_cast<float>(meshblock.index[1])) *
+          msg->block_edge_length;
+      vertex[2] =
+          (static_cast<float>(meshblock.z[i]) * point_conv_factor +
+           static_cast<float>(meshblock.index[2])) *
+          msg->block_edge_length;
+      
+      
+      vertices.emplace_back(vertex);
+
+      }
+      Eigen::Vector3d centroid {0.0,0.0,0.0};
+      centroid = std::accumulate(vertices.begin(), vertices.end(), centroid)/vertices.size();
+      
+
+      Eigen::Vector3d normal_average {0,0,0};
+      
+      for (size_t i = 0; i < vertices.size(); i += 3) {
+
+        const Eigen::Vector3d dir0 = vertices[i] - vertices[i + 1];
+        const Eigen::Vector3d dir1 = vertices[i] - vertices[i + 2];
+        const Eigen::Vector3d normal = dir0.cross(dir1).normalized();
+        normal_average += normal;
+
+      }
+      normal_average = normal_average.normalized();
+      ROS_INFO("normal size %f", normal_average.norm());
+      point.x = centroid[0]*msg->block_edge_length;
+      point.y = centroid[1]*msg->block_edge_length;
+      point.z = centroid[2]*msg->block_edge_length;
+
+      point.g = 255*normal_average[0];
+      point.b = 255*normal_average[1];
+      point.r = 255*normal_average[2];
+
+      cloud.push_back(point);
+
+    }
+    cloud.header.frame_id = "world";
+    norm_pub_.publish(cloud);
+    
+
   }
 
   // %Tag(CALLBACK)%
@@ -57,7 +125,7 @@ class SLAD
     PointCloudIntensity::Ptr temp_pc (new PointCloudIntensity);
     
     //pcl::io::savePCDFileASCII("test_pcd.pcd", *temp_pc);
-    current_transform = tf_buffer->lookupTransform("world", "cam", ros::Time(0), ros::Duration(3.0)).transform;
+    current_transform = tf_buffer->lookupTransform("world", "cam_pos", ros::Time(0), ros::Duration(3.0)).transform;
     
     pcl_ros::transformPointCloud(*msg, *temp_pc, current_transform);
     *local_dense_map += *temp_pc;
@@ -226,7 +294,9 @@ class SLAD
   private:
   ros::NodeHandle n_ = *(new ros::NodeHandle("~")); 
   ros::Publisher pub_;
+  ros::Publisher norm_pub_;
   ros::Subscriber sub_;
+  ros::Subscriber mesh_sub_;
 
   float boxSize;
   int minPoints;

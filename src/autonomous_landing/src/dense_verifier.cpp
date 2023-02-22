@@ -30,6 +30,7 @@ class DenseVerifier
       n_.getParam("image_scale", scale);
       n_.getParam("safety_zone_size", safety_zone_size);
       n_.getParam("sweep_n", sweep_n);
+      n_.getParam("window_size", window_size);
       
       n_.getParam("matching_threshold", matching_threshold);
       n_.getParam("distance_threshold", distance_threshold_squared);
@@ -216,6 +217,7 @@ class DenseVerifier
     float scale;
     float safety_zone_size;
     int sweep_n;
+    int window_size = 3;
     enum PSL::PlaneSweepOcclusionMode occlusion_mode = PSL::PLANE_SWEEP_OCCLUSION_NONE;
     float matching_threshold;
     float distance_threshold_squared;
@@ -273,7 +275,7 @@ class DenseVerifier
 
         PSL::CudaPlaneSweep cps;
         cps.setZRange(min_z, max_z);
-        cps.setMatchWindowSize(5, 5);
+        cps.setMatchWindowSize(window_size, window_size);
         cps.setNumPlanes(256);
         cps.setOcclusionMode(occlusion_mode);
         cps.setOcclusionBestK(sweep_n / 2);
