@@ -101,9 +101,9 @@ class SLAD
       }
       normal_average = normal_average.normalized();
       ROS_INFO("normal size %f", normal_average.norm());
-      point.x = centroid[0]*msg->block_edge_length;
-      point.y = centroid[1]*msg->block_edge_length;
-      point.z = centroid[2]*msg->block_edge_length;
+      point.x = centroid[0];
+      point.y = centroid[1];
+      point.z = centroid[2];
 
       point.g = 255*normal_average[0];
       point.b = 255*normal_average[1];
