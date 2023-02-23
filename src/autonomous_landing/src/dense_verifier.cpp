@@ -157,8 +157,6 @@ class DenseVerifier
       
       if(distance_squared > image_counter*image_counter * distance_threshold_squared) {
         
-        ROS_INFO("dist squared %f", distance_squared);
-        ROS_INFO("condition %f", image_counter*image_counter * distance_threshold_squared);
         transform_array[image_counter] = new_transform;
         
         if(image_counter == sweep_n/2) ref_stamp = msg->header.stamp;
@@ -242,10 +240,6 @@ class DenseVerifier
 
     void planeSweep() 
     {
-      ROS_INFO("positions");
-      ROS_INFO("%f %f %f", transform_array[0].translation.x, transform_array[0].translation.y, transform_array[0].translation.z);
-      ROS_INFO("%f %f %f", transform_array[1].translation.x, transform_array[1].translation.y, transform_array[1].translation.z);
-      ROS_INFO("%f %f %f", transform_array[2].translation.x, transform_array[2].translation.y, transform_array[2].translation.z);
       
       std::vector<PSL::CameraMatrix<double>> cameras(sweep_n);
       //std::vector<geometry_msgs::Pose> poses = pose_array;

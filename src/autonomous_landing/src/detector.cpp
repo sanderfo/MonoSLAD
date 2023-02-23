@@ -27,6 +27,101 @@ class NormalEstimationOMP : public pcl::NormalEstimationOMP<pcl::PointXYZI, pcl:
     return xyz_centroid_;
   }
 };
+class NormalEstimationRGB : public pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::Normal> {
+  public:
+  auto get_centroid() -> Eigen::Vector4f {
+    return xyz_centroid_;
+  }
+};
+
+class Mesh2D {
+  private: std::unordered_map<std::string, PointCloudNormal::Ptr> cloud_map;
+  public: 
+  Mesh2D(voxblox_msgs::Mesh mesh, float box_size){
+    //int block_scale = (int)std::ceil(box_size / mesh.block_edge_length);
+    //grid_size = mesh.block_edge_length * block_scale;
+    
+    for(auto mesh_block : mesh.mesh_blocks) {
+      //int index_x = (int)std::floor((mesh_block.index[0])*block_scale);
+      //int index_y = (int)std::floor((point.y-origin_y)*boxSizeInv);
+      std::string key = std::to_string(mesh_block.index[0]) + std::to_string(mesh_block.index[1]);
+      if(cloud_map.count(key) == 0) {
+        PointCloudNormal::Ptr inner_pointcloud (new PointCloudNormal());
+        cloud_map[key] = inner_pointcloud;
+      }
+      for(int i = 0; i < mesh_block.x.size(); i++){
+        pcl::PointXYZRGB point;
+        constexpr float point_conv_factor =
+          2.0f / std::numeric_limits<uint16_t>::max();
+      point.x =
+          (static_cast<float>(mesh_block.x[i]) * point_conv_factor +
+           static_cast<float>(mesh_block.index[0])) *
+          mesh.block_edge_length;
+      point.y =
+          (static_cast<float>(mesh_block.y[i]) * point_conv_factor +
+           static_cast<float>(mesh_block.index[1])) *
+          mesh.block_edge_length;
+      point.z =
+          (static_cast<float>(mesh_block.z[i]) * point_conv_factor +
+           static_cast<float>(mesh_block.index[2])) *
+          mesh.block_edge_length;
+        
+        point.r = mesh_block.r[i];
+        point.g = mesh_block.g[i];
+        point.b = mesh_block.b[i];
+        cloud_map[key]->push_back(point);
+      }
+    }
+  }
+  auto getLandingCloud(int min_points) -> PointCloudNormal::Ptr {
+    PointCloudNormal::Ptr landing_pc (new PointCloudNormal());
+    landing_pc->header.frame_id = "world";
+    for(auto kv : cloud_map) {
+      if(kv.second->size() > min_points) {
+        
+        float nx; float ny; float nz; float curvature;
+      std::vector<int> indices(kv.second->size());
+      std::iota(indices.begin(), indices.end(), 0);
+  
+      NormalEstimationRGB ne;
+      ne.setInputCloud(kv.second);
+
+      ne.computePointNormal(*kv.second, indices, nx, ny, nz, curvature);
+      Eigen::Vector4f centroid = ne.get_centroid();
+
+      pcl::PointXYZRGB point;
+      point.x = centroid[0];
+      point.y = centroid[1];
+      point.z = centroid[2];
+
+      ROS_INFO("centroid %f %f %f", point.x, point.y, point.z);
+
+      point.r = 765*curvature;
+      point.g = 255*smoothstep(0.6, 1.0, nz);
+      point.b = 0;
+
+      landing_pc->push_back(point);
+        
+      };
+
+      
+      
+    }
+
+    return landing_pc;
+    
+  }
+  private:
+  auto smoothstep(double edge0, double edge1, double x) -> double {
+    if(x < edge0) return 0.0;
+    if(x > edge1) return 1.0;
+
+    x = (x - edge0) / (edge1 - edge0);
+    return x*x*(3-2*x);
+
+  }
+
+};
 
 class SLAD
 {
@@ -53,11 +148,15 @@ class SLAD
   //largely derived from voxblox
   void meshCallback(const voxblox_msgs::Mesh::ConstPtr& msg)
   {
+    Mesh2D mesh_grid(*msg, 1);
+    PointCloudNormal::Ptr cloud = mesh_grid.getLandingCloud(5);
+    norm_pub_.publish(*cloud);
+    return;
     
-    PointCloudNormal cloud;
-    for(auto meshblock : msg->mesh_blocks)
+    /*for(auto meshblock : msg->mesh_blocks)
     {
       if(meshblock.x.size() == 0) continue;
+      PointCloudIntensity::Ptr test_cloud(new PointCloudIntensity());
       pcl::PointXYZRGB point;
       
       //Eigen::Vector3d origin {meshblock.index[0], meshblock.index[1], meshblock.index[2]};
@@ -65,6 +164,7 @@ class SLAD
       for(int i = 0; i < meshblock.x.size(); ++i)
       {
         Eigen::Vector3d vertex;
+        pcl::PointXYZI test_point;
 
         constexpr float point_conv_factor =
           2.0f / std::numeric_limits<uint16_t>::max();
@@ -81,39 +181,84 @@ class SLAD
            static_cast<float>(meshblock.index[2])) *
           msg->block_edge_length;
       
-      
+      test_point.x = vertex[0];
+      test_point.y = vertex[1];
+      test_point.z = vertex[2];
+      test_point.intensity = 100.0;
+
       vertices.emplace_back(vertex);
+      test_cloud->push_back(test_point);
 
       }
-      Eigen::Vector3d centroid {0.0,0.0,0.0};
-      centroid = std::accumulate(vertices.begin(), vertices.end(), centroid)/vertices.size();
+      std::vector<Eigen::Vector3d> centroids;
       
 
-      Eigen::Vector3d normal_average {0,0,0};
+      std::vector<Eigen::Vector3d> normals;
+      //double curvature = 0;
       
       for (size_t i = 0; i < vertices.size(); i += 3) {
+
+        centroids.emplace_back(std::accumulate(vertices.begin()+i, vertices.begin()+i+3, Eigen::Vector3d{0.0, 0.0, 0.0})/3);
+      
 
         const Eigen::Vector3d dir0 = vertices[i] - vertices[i + 1];
         const Eigen::Vector3d dir1 = vertices[i] - vertices[i + 2];
         const Eigen::Vector3d normal = dir0.cross(dir1).normalized();
-        normal_average += normal;
+        normals.push_back(normal);
 
       }
-      normal_average = normal_average.normalized();
-      ROS_INFO("normal size %f", normal_average.norm());
+      //estimating curvature:
+      //Eigen::Vector3d normal_finite_difference {0.0, 0.0, 0.0};
+      // remember to comment this out
+      double normal_finite_difference = 0;
+      for(size_t i = 1; i < normals.size(); i++){
+        //for(size_t j = i+1; j < normals.size(); j++){
+          double distance = (centroids[i] - centroids[0]).norm();
+          normal_finite_difference += (normals[i] - normals[0]).norm()/distance;
+
+
+        //}
+      }
+      ROS_INFO("before normalizing %f", normal_finite_difference);
+      normal_finite_difference /= normals.size();
+      ROS_INFO("after %f", normal_finite_difference);
+      
+      Eigen::Vector3d normal_average = std::accumulate(normals.begin(), normals.end(), Eigen::Vector3d{0.0, 0.0, 0.0}).normalized();
+      Eigen::Vector3d centroid = std::accumulate(centroids.begin(), centroids.end(), Eigen::Vector3d{0.0, 0.0, 0.0})/centroids.size();
+      
+      float nx; float ny; float nz; float curvature;
+      std::vector<int> indices(test_cloud->size());
+      std::iota(indices.begin(), indices.end(), 0);
+  
+      NormalEstimationOMP ne;
+      ne.setInputCloud(test_cloud);
+
+      ne.computePointNormal(*test_cloud, indices, nx, ny, nz, curvature);
+
+      ROS_INFO("pcl normal: %f %f %f", nx, ny, nz);
+      ROS_INFO("avg normal: %f %f %f", normal_average[0], normal_average[1], normal_average[2]);
+
+      Eigen::Vector4f pcl_centroid = ne.get_centroid();
+      ROS_INFO("pcl centroid: %f %f %f", pcl_centroid[0], pcl_centroid[1], pcl_centroid[2]);
+      ROS_INFO("avg centrod: %f %f %f", centroid[0], centroid[1], centroid[2]);
+
+      ROS_INFO("pcl curvature: %f", curvature);
+
+
+
       point.x = centroid[0];
       point.y = centroid[1];
       point.z = centroid[2];
 
-      point.g = 255*normal_average[0];
-      point.b = 255*normal_average[1];
-      point.r = 255*normal_average[2];
+      point.g = 255*smoothstep(0.6, 1.0, normal_average[2]);
+      point.b = 0;
+      point.r = 3*255*curvature;
 
       cloud.push_back(point);
 
     }
     cloud.header.frame_id = "world";
-    norm_pub_.publish(cloud);
+    norm_pub_.publish(cloud);*/
     
 
   }

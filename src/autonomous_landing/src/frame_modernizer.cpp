@@ -30,7 +30,7 @@ class Framer
     void transformCallback(const geometry_msgs::TransformStampedConstPtr &msg) 
     {
       //ros::Time ros_time = ros::Time::now();
-      ROS_INFO("tfcb");
+      
       geometry_msgs::TransformStamped tf_msg;
       tf_msg.transform = msg->transform;
       tf_msg.header.seq = 0;
