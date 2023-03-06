@@ -39,6 +39,8 @@ Panels:
         - /TF1
         - /TF1/Frames1
         - /TF1/Tree1
+        - /PointCloud24
+        - /PointCloud24/Status1
       Splitter Ratio: 0.5311203598976135
     Tree Height: 113
   - Class: rviz/Selection
@@ -361,8 +363,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
+        Max Value: 2.1000001430511475
+        Min Value: -33.29999923706055
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -370,7 +372,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: RGB8
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
@@ -379,13 +381,13 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.05000000074505806
+      Size (m): 0.20000000298023224
       Style: Flat Squares
       Topic: /voxblox_esdf/surface_pointcloud
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Axes Length: 1
       Axes Radius: 0.10000000149011612
@@ -432,11 +434,11 @@ Visualization Manager:
       Unreliable: false
       Value: false
     - Class: voxblox_rviz_plugin/VoxbloxMesh
-      Enabled: true
+      Enabled: false
       Name: VoxbloxMesh
       Topic: /voxblox_esdf/mesh
       Unreliable: false
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -493,7 +495,7 @@ Visualization Manager:
       Topic: /voxblox_esdf/esdf_pointcloud
       Unreliable: false
       Use Fixed Frame: true
-      Use rainbow: true
+      Use rainbow: false
       Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -584,6 +586,36 @@ Visualization Manager:
       Transport Hint: raw
       Unreliable: false
       Value: false
+    - Alpha: 1
+      Autocompute Intensity Bounds: false
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: z
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: RGB8
+      Decay Time: 1000
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 255
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.20000000298023224
+      Style: Flat Squares
+      Topic: /detector/normal_pointcloud
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -611,8 +643,8 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz/Orbit
-      Distance: 10
+      Class: rviz/ThirdPersonFollower
+      Distance: 34.28458786010742
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -627,10 +659,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.11039822548627853
+      Pitch: 0.2503984868526459
       Target Frame: dense_cam
-      Value: Orbit (rviz)
-      Yaw: 0.02721109241247177
+      Value: ThirdPersonFollower (rviz)
+      Yaw: 1.12539803981781
     Saved: ~
 Window Geometry:
   Displays:
@@ -648,8 +680,8 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1659
-  X: 352
-  Y: 138
+  X: 392
+  Y: 123
   cam_down:
     collapsed: false
   cam_left:

@@ -35,7 +35,10 @@ class NormalEstimationRGB : public pcl::NormalEstimationOMP<pcl::PointXYZRGB, pc
 };
 
 class Mesh2D {
-  private: std::unordered_map<std::string, PointCloudNormal::Ptr> cloud_map;
+  private: 
+  std::unordered_map<std::string, PointCloudNormal::Ptr> cloud_map;
+  std::unordered_map<std::string, pcl::PointXYZRGB> landing_map;
+  std::unordered_map<std::string, pcl::PointXYZRGB> landing_map_out;
   public: 
   Mesh2D(voxblox_msgs::Mesh mesh, float box_size){
     //int block_scale = (int)std::ceil(box_size / mesh.block_edge_length);
@@ -44,7 +47,7 @@ class Mesh2D {
     for(auto mesh_block : mesh.mesh_blocks) {
       //int index_x = (int)std::floor((mesh_block.index[0])*block_scale);
       //int index_y = (int)std::floor((point.y-origin_y)*boxSizeInv);
-      std::string key = std::to_string(mesh_block.index[0]) + std::to_string(mesh_block.index[1]);
+      std::string key = std::to_string(mesh_block.index[0]) + " " + std::to_string(mesh_block.index[1]);
       if(cloud_map.count(key) == 0) {
         PointCloudNormal::Ptr inner_pointcloud (new PointCloudNormal());
         cloud_map[key] = inner_pointcloud;
@@ -94,15 +97,53 @@ class Mesh2D {
       point.y = centroid[1];
       point.z = centroid[2];
 
-      ROS_INFO("centroid %f %f %f", point.x, point.y, point.z);
-
       point.r = 765*curvature;
-      point.g = 255*smoothstep(0.6, 1.0, nz);
+      point.g = 255*smoothstep(0.7, 1.0, nz);
       point.b = 0;
 
-      landing_pc->push_back(point);
+      //std::array<float, 5> arr = {};
+      landing_map[kv.first] = point;
+
+      
         
       };
+    // inheriting flatness and curvature from neighbouring cells
+    for(auto kv : landing_map) {
+      int x = std::stoi(kv.first.substr(0, kv.first.find(" ")));
+      int y = std::stoi(kv.first.substr(kv.first.find(" "), kv.first.length()));
+      uint8_t worst_nz = kv.second.g;
+      uint8_t worst_curvature = kv.second.r;
+      bool has_neighbours = true;
+      for(int i = -1; i < 2; i++)
+      {
+        for(int j = -1; j < 2; j++) {
+          if(has_neighbours){
+            std::string key = std::to_string(x+i) + " " + std::to_string(y+j);
+            if(landing_map.count(key) == 0) 
+            {
+              has_neighbours = false;
+              worst_nz = 0;
+              worst_curvature = 255;
+              
+            }
+            else{
+              worst_nz = std::min(worst_nz, landing_map[key].g);
+              worst_curvature = std::max(worst_curvature, landing_map[key].r);
+            }
+          }
+        }
+      }
+      if(has_neighbours){
+        pcl::PointXYZRGB new_point;
+        new_point.x = kv.second.x;
+        new_point.y = kv.second.y;
+        new_point.z = kv.second.z;
+        new_point.g = worst_nz;
+        new_point.r = worst_curvature;
+        new_point.b = kv.second.b;
+        landing_pc->push_back(new_point);
+      } 
+    }
 
       
       
@@ -149,7 +190,7 @@ class SLAD
   void meshCallback(const voxblox_msgs::Mesh::ConstPtr& msg)
   {
     Mesh2D mesh_grid(*msg, 1);
-    PointCloudNormal::Ptr cloud = mesh_grid.getLandingCloud(5);
+    PointCloudNormal::Ptr cloud = mesh_grid.getLandingCloud(minPoints);
     norm_pub_.publish(*cloud);
     return;
     

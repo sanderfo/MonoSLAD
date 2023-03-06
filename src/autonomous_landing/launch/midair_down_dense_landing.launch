@@ -32,7 +32,7 @@
         <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
         <remap from="detector/input_mesh" to="/voxblox_esdf/mesh" />
         <param name="boxSize" value="2.0" />
-        <param name="minPoints" value="20" />
+        <param name="minPoints" value="16" />
         <param name="voxel_size" value="0.1" />
             
     </node>
