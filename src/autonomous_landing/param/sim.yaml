@@ -1,0 +1,17 @@
+label: "sim"
+id: 412eab9e4058621f7036b5e765dfe812
+camera:
+  label: sim
+  id: 54812562fa109c40fe90b29a59dd7799
+  line-delay-nanoseconds: 0
+  image_height: 480
+  image_width: 752
+  type: pinhole
+  intrinsics: [448.1, 376.5, 448.1, 240.5]
+  distortion_model: none
+  distortion: [0.0, 0.0, 0.0,
+  0.0]
+T_B_C: [1.0, 0.0, 0.0, 0.0,
+           0.0, 1.0, 0.0, 0.0,
+           0.0, 0.0, 1.0, 0.0,
+           0.0, 0.0, 0.0, 1.0]

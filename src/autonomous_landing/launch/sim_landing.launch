@@ -1,0 +1,34 @@
+<launch>
+
+   <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" clear_params="true" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="dense/cam" to="/firefly/vi_sensor/left/image_raw" />
+        <param name="use_tf_transforms" value="false" />
+        <param name="poses_supplied" value="false" />
+        <param name="cam_frame_topic" value="firefly/vi_sensor/camera_left_optical_link" />
+        <param name="world_frame_topic" value="odom" />
+        <param name="image_scale" value="0.5" />
+        <param name="safety_zone_size" value="5.0" />
+        <param name="sweep_n" value="3" />
+        <param name="window_size" value="7" />
+        <param name="occlusion_mode" value="none" />
+        <param name="matching_threshold" value="0.5" />
+        <param name="distance_threshold" value="0.2" />
+        <param name="uniqueness_threshold" value="0.95" />
+        <param name="pointcloud_filter_radius" value="0.2" />
+        <param name="pointcloud_filter_min_neighbours" value="10" />
+            
+        <rosparam file="$(find autonomous_landing)param/sim.yaml" command="load" />
+            
+    </node>
+
+    <node pkg="autonomous_landing" name="detector" type="detector" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
+        <remap from="detector/input_mesh" to="/firefly/voxblox_node/mesh" />
+        <param name="boxSize" value="2.0" />
+        <param name="minPoints" value="16" />
+        <param name="voxel_size" value="0.1" />
+            
+    </node>
+       
+    
+</launch>

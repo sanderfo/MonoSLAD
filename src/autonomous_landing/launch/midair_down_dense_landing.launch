@@ -5,6 +5,7 @@
         <param name="use_tf_transforms" value="false" />
         <param name="poses_supplied" value="false" />
         <param name="cam_frame_topic" value="dense_cam" />
+        <param name="world_frame_topic" value="world" />
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
         <param name="sweep_n" value="3" />
