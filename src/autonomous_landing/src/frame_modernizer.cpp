@@ -16,11 +16,11 @@ class Framer
       
     if(poses_supplied){
           transformsub_ =
-          n_.subscribe("body", 10, &Framer::poseCallback, this);
+          n_.subscribe("body", 3, &Framer::poseCallback, this);
         }
     else{
           transformsub_ =
-          n_.subscribe("body", 10, &Framer::transformCallback, this);
+          n_.subscribe("body", 3, &Framer::transformCallback, this);
         }
         
         

@@ -13,11 +13,12 @@
         <param name="occlusion_mode" value="none" />
         <param name="matching_threshold" value="0.5" />
         <param name="distance_threshold" value="0.2" />
-        <param name="uniqueness_threshold" value="0.95" />
+        <param name="uniqueness_threshold" value="0.85" />
         <param name="pointcloud_filter_radius" value="0.2" />
         <param name="pointcloud_filter_min_neighbours" value="10" />
+        <param name="write_to_file_debug" value="false" />
             
-        <rosparam file="$(find autonomous_landing)param/sim.yaml" command="load" />
+        <rosparam file="$(find autonomous_landing)/param/sim.yaml" command="load" />
             
     </node>
 

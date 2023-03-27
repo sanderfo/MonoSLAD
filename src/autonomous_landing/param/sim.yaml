@@ -7,7 +7,7 @@ camera:
   image_height: 480
   image_width: 752
   type: pinhole
-  intrinsics: [448.1, 376.5, 448.1, 240.5]
+  intrinsics: [448.1, 448.1, 376.5, 240.5]
   distortion_model: none
   distortion: [0.0, 0.0, 0.0,
   0.0]

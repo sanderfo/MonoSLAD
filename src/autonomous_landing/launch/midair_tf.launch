@@ -1,0 +1,13 @@
+<launch>
+
+       
+    <node pkg="autonomous_landing" name="framer" type="frame_modernizer" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+        <remap from="framer/body" to="/midair/transform" />
+        <param name="poses_supplied" value="false" />
+        
+    </node>
+    <node pkg="tf2_ros" name="body_cam_broadcaster" type="static_transform_publisher" args="0 0 0 1 0 0 0 body dense_cam" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+       <param name="/use_sim_time" value="true" />
+    </node>
+
+</launch>

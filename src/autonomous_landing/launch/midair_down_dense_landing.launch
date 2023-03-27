@@ -1,37 +1,32 @@
 <launch>
 
-   <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
+   <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" clear_params="true" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="dense/cam" to="/cam_down" />
-        <param name="use_tf_transforms" value="false" />
-        <param name="poses_supplied" value="false" />
+        <param name="use_tf_transforms" value="true" />
+        <param name="poses_supplied" value="true" />
         <param name="cam_frame_topic" value="dense_cam" />
         <param name="world_frame_topic" value="world" />
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
-        <param name="sweep_n" value="3" />
+        <param name="sweep_n" value="5" />
         <param name="window_size" value="7" />
         <param name="occlusion_mode" value="none" />
-        <param name="matching_threshold" value="0.5" />
+        <param name="occlusion_best_k" value="5" />
+        <param name="matching_threshold" value="0.3" />
         <param name="distance_threshold" value="0.1" />
         <param name="uniqueness_threshold" value="0.95" />
         <param name="pointcloud_filter_radius" value="0.2" />
-        <param name="pointcloud_filter_min_neighbours" value="10" />
+        <param name="pointcloud_filter_min_neighbours" value="15" />
+        <param name="write_to_file_debug" value="false" />
+        <param name="median_filter_kernel_size" value="5" />
             
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
             
     </node>
-    <node pkg="autonomous_landing" name="framer" type="frame_modernizer" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
-        <remap from="framer/body" to="/midair/transform" />
-        <param name="poses_supplied" value="false" />
-        
-    </node>
-    <node pkg="tf2_ros" name="body_cam_broadcaster" type="static_transform_publisher" args="0 0 0 1 0 0 0 body dense_cam" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
-       <param name="/use_sim_time" value="true" />
-    </node>
 
     <node pkg="autonomous_landing" name="detector" type="detector" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
-        <remap from="detector/input_mesh" to="/voxblox_esdf/mesh" />
+        <remap from="detector/input_mesh" to="/voxblox_midair/voxblox_node/mesh" />
         <param name="boxSize" value="2.0" />
         <param name="minPoints" value="16" />
         <param name="voxel_size" value="0.1" />
