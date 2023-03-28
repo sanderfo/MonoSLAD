@@ -10,8 +10,8 @@
 #include <geometry_msgs/TransformStamped.h>
 #include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
-#include <pcl/io/image_depth.h>
-#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/features/normal_3d_omp.h>
+#include <pcl/features/integral_image_normal.h>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/highgui.hpp>
@@ -22,8 +22,15 @@
 //#include <iostream>
 //#include <fstream>
 
-using PointCloud = pcl::PointCloud<pcl::PointXYZI>;
-
+using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
+using PointCloudRGB = pcl::PointCloud<pcl::PointXYZRGB>;
+using PointCloudNormal = pcl::PointCloud<pcl::Normal>;
+class NormalEstimationXYZ : public pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> {
+  public:
+  auto get_centroid() -> Eigen::Vector4f {
+    return xyz_centroid_;
+  }
+};
 class DenseVerifier
 {
     public:
@@ -40,8 +47,8 @@ class DenseVerifier
       n_.getParam("matching_threshold", matching_threshold);
       n_.getParam("distance_threshold", distance_threshold_squared);
       n_.getParam("uniqueness_threshold", uniqueness_threshold);
-      n_.getParam("pointcloud_filter_radius", filter_radius);
-      n_.getParam("pointcloud_filter_min_neighbours", filter_neighbours);
+      n_.getParam("normal_smoothing_size", normal_smoothing_size);
+      n_.getParam("max_depth_change_factor", max_depth_change_factor);
 
       std::string occlusion_string;
       n_.getParam("occlusion_mode", occlusion_string);
@@ -77,7 +84,7 @@ class DenseVerifier
 
      
       dense_pub_ =
-          n_.advertise<PointCloud>("dense_pointcloud", 5);
+          n_.advertise<PointCloudRGB>("dense_pointcloud", 5);
       depth_pub_ = it.advertise("depth_image", 1);
       refimg_pub_ = it.advertise("ref_img", 1);
       refimg_pub2_ = it.advertise("ref_img2", 1);
@@ -272,7 +279,8 @@ class DenseVerifier
     float matching_threshold;
     float distance_threshold_squared;
     float uniqueness_threshold;
-    float filter_radius;
+    float normal_smoothing_size = 10.0f;
+    float max_depth_change_factor = 0.2f;
     int filter_neighbours;
     Eigen::Matrix3d K;
 
@@ -380,20 +388,8 @@ class DenseVerifier
         PSL::Grid<float> costs = cps.getBestCosts();
         PSL::Grid<float> uniqueness_map = cps.getUniquenessRatios();
 
-        
-        
-        
         int width = depth_map.getWidth();
         int height = depth_map.getHeight();
-
-        PointCloud::Ptr ordered_pointcloud (new PointCloud());
-        
-        ordered_pointcloud->height = height;
-        ordered_pointcloud->width = width;
-        ordered_pointcloud->is_dense = false;
-        ordered_pointcloud->resize(height * width);
-        
-        
 
         Eigen::Matrix3d R = depth_map.getCam().getR();
         Eigen::Vector3d T = depth_map.getCam().getT();
@@ -458,11 +454,17 @@ class DenseVerifier
 
         //cv::Mat merged;
         //cv::merge(arr, merged);
+        PointCloudXYZ::Ptr ordered_pointcloud (new PointCloudXYZ());
+        
+        ordered_pointcloud->height = height;
+        ordered_pointcloud->width = width;
+        ordered_pointcloud->is_dense = false;
+        ordered_pointcloud->resize(height * width);
         
         typedef float Pixel;
         
         depth_cv_filtered.forEach<Pixel>([this, ordered_pointcloud](Pixel &pixel, const int position[]) -> void {
-          pcl::PointXYZI pcl_point;
+          pcl::PointXYZ pcl_point;
           if (pixel > 0.0 /*&& pixel.y < matching_threshold && pixel.z < uniqueness_threshold*/)
                 {
 
@@ -470,7 +472,7 @@ class DenseVerifier
                       pcl_point.y = (position[0] - this->K(1,2))*pixel/this->K(1,1);
                       pcl_point.z = pixel;
                     
-                      pcl_point.intensity = this->image_sweeping_array[this->ref_id].at<uint8_t>(position[0],position[1]);
+                      //pcl_point.intensity = this->image_sweeping_array[this->ref_id].at<uint8_t>(position[0],position[1]);
                     
                       ordered_pointcloud->at(position[1], position[0]) = pcl_point;
                       //ordered_pointcloud->erase(iterator position)
@@ -485,75 +487,45 @@ class DenseVerifier
               }
         });
         
+        //integral images
+        pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
+    
+        pcl::IntegralImageNormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+        ne.setNormalEstimationMethod (ne.COVARIANCE_MATRIX);
+        ne.setMaxDepthChangeFactor(max_depth_change_factor);
+        ne.setNormalSmoothingSize(normal_smoothing_size);
+        ne.setDepthDependentSmoothing(false);
+        ne.setInputCloud(ordered_pointcloud);
+        ne.compute(*normals);
 
+        pcl::PointCloud<pcl::PointNormal>::Ptr concat_pointcloud (new pcl::PointCloud<pcl::PointNormal>);
         
+        pcl::concatenateFields(*ordered_pointcloud, *normals, *concat_pointcloud);
         
-
-
-        /*for (int i = kernel_size/2; i < width-kernel_size/2; i++) 
-        {
-            for (int j = kernel_size/2; j < height-kernel_size/2; j++)
-            {   //Eigen::Vector4d eig_point = depth_map.unproject(i, j);
-                
-                
-                if (depth_cv[j][i] > 0.0 && costs(i, j) < matching_threshold && uniqueness_map(i,j) < uniqueness_threshold)
-                {
-                    
-
-                    pcl::PointXYZI pcl_point;
-
-                    //std::vector<float> neighbours_array(kernel_size*kernel_size);
-                    //int index_count = 0;
-                    //for(int k = i-kernel_size/2; k < i+kernel_size/2+1; k++)
-                    //{
-                    //  for(int l = j-kernel_size/2; l < j+kernel_size/2+1; l++)
-                    //  {
-                    //    if (costs(k, l) < matching_threshold && uniqueness_map(k,l) < uniqueness_threshold)
-                    //    {
-                    //      neighbours_array[index_count] = depth_map(k,l);
-                    //    }
-                    //    else neighbours_array[index_count] = 0.0;
-                        
-                    //    index_count++;
-                    //  }
-                    //}
-
-                    //std::sort(neighbours_array.begin(), neighbours_array.end());
-
-                    //auto depth = neighbours_array[kernel_size*kernel_size/2];
-                    float depth = depth_cv[j][i];
-                    //if(depth > 0.001)
-                    //{
-                      pcl_point.x = (i - K(0,2))*depth/K(0,0);
-                      pcl_point.y = (j - K(1,2))*depth/K(1,1);
-                      pcl_point.z = depth;
-                    
-                      pcl_point.intensity = refimg.at<uint8_t>(j,i);
-                    
-                      //ordered_pointcloud->at(i, j) = pcl_point;
-                      ordered_pointcloud->push_back(pcl_point);
-                    
-                    //}
-                    
-                }
-                else {
-                  //depth_map(i,j) = 0;
-                }
-            }
-        }*/
-
+        PointCloudRGB::Ptr colored_pointcloud (new PointCloudRGB);
         
-
+        //auto colored_pointcloud = concat_pointcloud;
         
-        /*PointCloud::Ptr filtered_pointcloud (new PointCloud());
-        pcl::RadiusOutlierRemoval<pcl::PointXYZI> remover;
-        remover.setInputCloud(ordered_pointcloud);
-        remover.setMinNeighborsInRadius(filter_neighbours);
-        remover.setRadiusSearch(filter_radius);*/
+        Eigen::Vector3d z_dir = tf2::transformToEigen(transform_array[ref_index]).rotation().col(2);
+        for(auto pt : concat_pointcloud->points){
+          if(std::isnan(pt.curvature)) continue;
+          pcl::PointXYZRGB rgb_point;
+          rgb_point.x = pt.x;
+          rgb_point.y = pt.y;
+          rgb_point.z = pt.z;
+          rgb_point.r = 255*smoothstep(0.0, 0.015, pt.curvature);
+          Eigen::Vector3d eig_normal(pt.normal[0], pt.normal[1], pt.normal[2]);
+          rgb_point.g = 255*smoothstep(0.8, 1.0, z_dir.dot(eig_normal));
+          rgb_point.b = 0;
+
+          colored_pointcloud->push_back(rgb_point);
+
+        }
+        //filtered_pointcloud->at(0,0).
         
         // remember to uncomment this
         //remover.filter(*filtered_pointcloud);
-        auto filtered_pointcloud = ordered_pointcloud;
+        
 
         cv::Mat depth_mat = depth_map_to_msg(depth_map, min_z, max_z);
         sensor_msgs::ImagePtr depth_msg = cv_bridge::CvImage(image_headers[sweep_n/2], "mono8", depth_mat).toImageMsg();
@@ -605,14 +577,23 @@ class DenseVerifier
         }
         
 
-        filtered_pointcloud->header.frame_id = cam_frame_topic;
+        colored_pointcloud->header.frame_id = cam_frame_topic;
 
-        pcl_conversions::toPCL(ref_stamp, filtered_pointcloud->header.stamp);
+        pcl_conversions::toPCL(ref_stamp, colored_pointcloud->header.stamp);
         
         
-        dense_pub_.publish(filtered_pointcloud);
+        dense_pub_.publish(colored_pointcloud);
         ROS_INFO("total time %f", (ros::Time::now()- t0).toSec());
-    };
+    }
+
+    auto smoothstep(double edge0, double edge1, double x) -> double {
+      if(x < edge0) return 0.0;
+      if(x > edge1) return 1.0;
+
+      x = (x - edge0) / (edge1 - edge0);
+      return x*x*(3-2*x);
+
+  }
 
     void print4(Eigen::Matrix4d pose_matrix) 
     {
