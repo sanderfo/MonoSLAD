@@ -97,8 +97,8 @@ class Mesh2D {
       point.y = centroid[1];
       point.z = centroid[2];
 
-      point.r = 765*curvature;
-      point.g = 255*smoothstep(0.7, 1.0, nz);
+      point.r = 255*smoothstep(0.0, 0.015, curvature);
+      point.g = 255*smoothstep(0.9, 1.0, nz);
       point.b = 0;
 
       //std::array<float, 5> arr = {};

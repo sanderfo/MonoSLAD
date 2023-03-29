@@ -76,7 +76,7 @@ class DenseVerifier
       std::vector<double> tbc_list;
       n_.getParam("T_B_C", tbc_list);
       n_.getParam("median_filter_kernel_size", kernel_size);
-
+      n_.getParam("voxel_size", voxel_size);
 
       
 
@@ -279,10 +279,11 @@ class DenseVerifier
     float matching_threshold;
     float distance_threshold_squared;
     float uniqueness_threshold;
-    float normal_smoothing_size = 10.0f;
+    int normal_smoothing_size = 3;
     float max_depth_change_factor = 0.2f;
     int filter_neighbours;
     Eigen::Matrix3d K;
+    float voxel_size;
 
     int ref_id = -1;
     
@@ -342,7 +343,8 @@ class DenseVerifier
 
         float min_z = 2.5f*avg_distance;
         float max_z = 100.0f*avg_distance;
-
+        //float min_z = 1.0f;
+        //float max_z = 15.0f;
 
         PSL::CudaPlaneSweep cps;
         cps.setZRange(min_z, max_z);
@@ -488,26 +490,147 @@ class DenseVerifier
         });
         
         //integral images
+        Eigen::Vector3d z_dir = tf2::transformToEigen(transform_array[ref_index]).rotation().col(2);
+        
         pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
-    
+        PointCloudRGB::Ptr colored_pointcloud (new PointCloudRGB);
+
         pcl::IntegralImageNormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
         ne.setNormalEstimationMethod (ne.COVARIANCE_MATRIX);
         ne.setMaxDepthChangeFactor(max_depth_change_factor);
-        ne.setNormalSmoothingSize(normal_smoothing_size);
+        ne.setNormalSmoothingSize((float)normal_smoothing_size);
         ne.setDepthDependentSmoothing(false);
         ne.setInputCloud(ordered_pointcloud);
-        ne.compute(*normals);
 
-        pcl::PointCloud<pcl::PointNormal>::Ptr concat_pointcloud (new pcl::PointCloud<pcl::PointNormal>);
         
-        pcl::concatenateFields(*ordered_pointcloud, *normals, *concat_pointcloud);
+        int step_size_x = width/5; //initially assuming far away points
+        int step_size_y = height/5;
         
-        PointCloudRGB::Ptr colored_pointcloud (new PointCloudRGB);
+        int border = normal_smoothing_size;
+        
+        for(int i = 0; i < width-step_size_x; i += step_size_x){
+          
+          for(int j = 0; j < height-step_size_y; j += step_size_y) {
+            //ROS_INFO("i j stepx stepy %d %d %d %d", i, j, step_size_x, step_size_y);
+            float depth_max = 0.0f;
+            
+            
+            int rect_x;
+            int rect_y;
+            
+            
+            
+            
+            for(int k = 0; k < step_size_x; k++) 
+            {
+              for(int l = 0; l < step_size_y; l++)
+              {
+                
+                if(!std::isnan(ordered_pointcloud->at(i+k, j+l).z))
+                {
+                  pcl::PointXYZ pointxyz = ordered_pointcloud->at(i+k, j+l);
+                  depth_max = std::max<double>(pointxyz.z, depth_max);
+                    //centroid.x += pointxyz.x;
+                    //centroid.y += pointxyz.y;
+                    //centroid.z += pointxyz.z;
+                    //depth_counts++;
+                  }
+                
+                }
+            }
+            if(depth_max < 1.0) continue;
+            float dist_x = depth_max/K(0,0);
+            float dist_y = depth_max/K(1,1);
+            rect_x = std::max((int)std::floor(voxel_size/dist_x), 3);
+            rect_y = std::max((int)std::floor(voxel_size/dist_y), 3);
+
+            
+            
+            for(int k = 0; k < step_size_x-rect_x; k += rect_x) 
+            {
+              for(int l = 0; l < step_size_y-rect_y; l += rect_y)
+              {
+                if(i+k < normal_smoothing_size*rect_x/2 || i+k >= width - normal_smoothing_size*rect_x/2) continue;
+                if(j+l < normal_smoothing_size*rect_y/2 || j+l >= height - normal_smoothing_size*rect_y/2) continue;
+
+                pcl::PointXYZRGB centroid;
+                
+                int depth_counts = 0;
+                for(int i2 = i+k; i2 < i+k + rect_x; i2++){
+                  for(int j2 = j+l; j2 < j+l + rect_y; j2++){
+                    
+                    pcl::PointXYZ pointxyz = ordered_pointcloud->at(i2, j2);
+                    if(!std::isnan(pointxyz.z))
+                    {
+                      centroid.x += pointxyz.x;
+                      centroid.y += pointxyz.y;
+                      centroid.z += pointxyz.z;
+                      depth_counts++;
+                    }
+                    
+                  }
+                }
+                if(depth_counts < 1) continue;
+                centroid.x /= depth_counts;
+                centroid.y /= depth_counts;
+                centroid.z /= depth_counts;
+                ne.setRectSize(normal_smoothing_size*rect_x, normal_smoothing_size*rect_y);
+                pcl::Normal normal;
+                unsigned index_x = i+k + rect_x/2;
+                unsigned index_y = j+l + rect_y/2;
+                unsigned point_index = index_y * width + index_x;
+                ne.computePointNormal(index_x, index_y, point_index, normal);
+                
+                pcl::PointXYZRGB pt;
+
+                pt.x = centroid.x;
+                pt.y = centroid.y;
+                pt.z = centroid.z;
+                pt.r = 255*smoothstep(0.0, 0.015, normal.curvature);
+                Eigen::Vector3d eig_normal(normal.normal[0], normal.normal[1], normal.normal[2]);
+                pt.g = 255*smoothstep(0.9, 1.0, z_dir.dot(eig_normal));
+                pt.b = 0;
+                
+                colored_pointcloud->push_back(pt);
+
+                
+                
+                /*if(!std::isnan(ordered_pointcloud->at(i+k, j+l).z))
+                {
+                  pcl::PointXYZ pointxyz = ordered_pointcloud->at(i+k, j+l);
+                  //depth_max = std::max<double>(pointxyz.z, depth_max);
+                  centroid.x += pointxyz.x;
+                  centroid.y += pointxyz.y;
+                  centroid.z += pointxyz.z;
+                  depth_counts++;
+                  }*/
+                
+                }
+            }
+
+            
+
+                
+                
+
+              
+            
+            
+          }
+
+        }
+        //ne.computePointNormal(const int pos_x, const int pos_y, const unsigned int point_index, Normal &normal)
+        //ne.compute(*normals);
+
+        //pcl::PointCloud<pcl::PointNormal>::Ptr concat_pointcloud (new pcl::PointCloud<pcl::PointNormal>);
+        
+        //pcl::concatenateFields(*ordered_pointcloud, *normals, *concat_pointcloud);
+        
+        
         
         //auto colored_pointcloud = concat_pointcloud;
         
-        Eigen::Vector3d z_dir = tf2::transformToEigen(transform_array[ref_index]).rotation().col(2);
-        for(auto pt : concat_pointcloud->points){
+        /*for(auto pt : concat_pointcloud->points){
           if(std::isnan(pt.curvature)) continue;
           pcl::PointXYZRGB rgb_point;
           rgb_point.x = pt.x;
@@ -515,12 +638,12 @@ class DenseVerifier
           rgb_point.z = pt.z;
           rgb_point.r = 255*smoothstep(0.0, 0.015, pt.curvature);
           Eigen::Vector3d eig_normal(pt.normal[0], pt.normal[1], pt.normal[2]);
-          rgb_point.g = 255*smoothstep(0.8, 1.0, z_dir.dot(eig_normal));
+          rgb_point.g = 255*smoothstep(0.9, 1.0, z_dir.dot(eig_normal));
           rgb_point.b = 0;
 
           colored_pointcloud->push_back(rgb_point);
 
-        }
+        }*/
         //filtered_pointcloud->at(0,0).
         
         // remember to uncomment this
