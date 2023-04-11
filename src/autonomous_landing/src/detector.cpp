@@ -42,20 +42,28 @@ class Mesh2D {
   public: 
   Mesh2D(voxblox_msgs::Mesh mesh, float box_size){
     //int block_scale = (int)std::ceil(box_size / mesh.block_edge_length);
-    //grid_size = mesh.block_edge_length * block_scale;
-    
+    //auto grid_size = mesh.block_edge_length * block_scale;
+    constexpr float point_conv_factor =
+          2.0f / std::numeric_limits<uint16_t>::max();
+    float origin_x;
+    float origin_y;
+    bool origin_set = false;
     for(auto mesh_block : mesh.mesh_blocks) {
+      
+      
+      
       //int index_x = (int)std::floor((mesh_block.index[0])*block_scale);
       //int index_y = (int)std::floor((point.y-origin_y)*boxSizeInv);
-      std::string key = std::to_string(mesh_block.index[0]) + " " + std::to_string(mesh_block.index[1]);
+      /*std::string key = std::to_string(mesh_block.index[0]) + " " + std::to_string(mesh_block.index[1]);
       if(cloud_map.count(key) == 0) {
         PointCloudNormal::Ptr inner_pointcloud (new PointCloudNormal());
         cloud_map[key] = inner_pointcloud;
-      }
+      }*/
       for(int i = 0; i < mesh_block.x.size(); i++){
+        
         pcl::PointXYZRGB point;
-        constexpr float point_conv_factor =
-          2.0f / std::numeric_limits<uint16_t>::max();
+        
+        
       point.x =
           (static_cast<float>(mesh_block.x[i]) * point_conv_factor +
            static_cast<float>(mesh_block.index[0])) *
@@ -68,10 +76,23 @@ class Mesh2D {
           (static_cast<float>(mesh_block.z[i]) * point_conv_factor +
            static_cast<float>(mesh_block.index[2])) *
           mesh.block_edge_length;
+
+        if(!origin_set){
+          origin_set = true;
+          origin_x = point.x;
+          origin_y = point.y;
+        }
         
         point.r = mesh_block.r[i];
         point.g = mesh_block.g[i];
         point.b = mesh_block.b[i];
+        int index_x = (int)std::floor((point.x - origin_x)/box_size);
+        int index_y = (int)std::floor((point.y - origin_y)/box_size);
+        std::string key = std::to_string(index_x) + " " + std::to_string(index_y);
+        if(cloud_map.count(key) == 0) {
+          PointCloudNormal::Ptr inner_pointcloud (new PointCloudNormal());
+          cloud_map[key] = inner_pointcloud;
+        }
         cloud_map[key]->push_back(point);
       }
     }
@@ -82,33 +103,54 @@ class Mesh2D {
     for(auto kv : cloud_map) {
       if(kv.second->size() > min_points) {
         
-        float nx; float ny; float nz; float curvature;
-      std::vector<int> indices(kv.second->size());
-      std::iota(indices.begin(), indices.end(), 0);
+        /*float nx; float ny; float nz; float curvature;
+        std::vector<int> indices(kv.second->size());
+        std::iota(indices.begin(), indices.end(), 0);
+    
+        NormalEstimationRGB ne;
+        ne.setInputCloud(kv.second);
   
-      NormalEstimationRGB ne;
-      ne.setInputCloud(kv.second);
+        ne.computePointNormal(*kv.second, indices, nx, ny, nz, curvature);
+        Eigen::Vector4f centroid = ne.get_centroid();
+        */
+        //std::max_element(kv.second->points.begin(), kv.second->points.end());
+        pcl::PointXYZRGB point;
+        uint8_t max_r = 0;
+        uint8_t min_g = 255;
+        for(auto pt : kv.second->points){
+          max_r = std::max(max_r, pt.r);
+          min_g = std::min(min_g, pt.g);
+          point.x += pt.x;
+          point.y += pt.y;
+          point.z += pt.z;
+        }
 
-      ne.computePointNormal(*kv.second, indices, nx, ny, nz, curvature);
-      Eigen::Vector4f centroid = ne.get_centroid();
-
-      pcl::PointXYZRGB point;
-      point.x = centroid[0];
-      point.y = centroid[1];
-      point.z = centroid[2];
-
-      point.r = 255*smoothstep(0.0, 0.015, curvature);
-      point.g = 255*smoothstep(0.9, 1.0, nz);
-      point.b = 0;
-
-      //std::array<float, 5> arr = {};
-      landing_map[kv.first] = point;
+        
+        
+        //point.x = centroid[0];
+        //point.y = centroid[1];
+        //point.z = centroid[2];
+        if(max_r < 127 && min_g > 127){
+          point.x /= kv.second->size();
+          point.y /= kv.second->size();
+          point.z /= kv.second->size();
+          point.r = max_r;
+          point.g = min_g;
+          point.b = 0;
+  
+        //std::array<float, 5> arr = {};
+        //landing_map[kv.first] = point;
+          landing_pc->push_back(point);
+        }
+        
+        
 
       
         
       };
+    
     // inheriting flatness and curvature from neighbouring cells
-    for(auto kv : landing_map) {
+    /*for(auto kv : landing_map) {
       int x = std::stoi(kv.first.substr(0, kv.first.find(" ")));
       int y = std::stoi(kv.first.substr(kv.first.find(" "), kv.first.length()));
       uint8_t worst_nz = kv.second.g;
@@ -143,7 +185,7 @@ class Mesh2D {
         new_point.b = kv.second.b;
         landing_pc->push_back(new_point);
       } 
-    }
+    }*/
 
       
       
@@ -180,18 +222,41 @@ class SLAD
     norm_pub_ = n_.advertise<PointCloudNormal>("normal_pointcloud", 2);
 
     //sub_ = n_.subscribe("input_pointcloud", 2, &SLAD::pointCloudCallback, this);
-    mesh_sub_ = n_.subscribe("input_mesh", 2, &SLAD::meshCallback, this);
+    mesh_sub_ = n_.subscribe("input_mesh", 10, &SLAD::meshCallback, this);
     tf_buffer = std::make_unique<tf2_ros::Buffer>();
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
     global_landing_map->header.frame_id = "world";
   }
+  //void mapCallback(const )
 
   //largely derived from voxblox
   void meshCallback(const voxblox_msgs::Mesh::ConstPtr& msg)
   {
-    Mesh2D mesh_grid(*msg, 1);
+
+    ROS_INFO("meshcallback");
+    Eigen::Affine3f transform;
+    try {
+      transform = tf2::transformToEigen(tf_buffer->lookupTransform("dense_cam", "world",
+                                msg->header.stamp, ros::Duration(3.0)).transform).matrix().cast<float>();
+    }
+    catch (tf2::TransformException& e) {
+        ROS_INFO("%s",e.what());
+        
+        return;
+      }
+    
+    ROS_INFO("msg size %lu", msg->mesh_blocks.size());
+    
+    Mesh2D mesh_grid(*msg, boxSize);
     PointCloudNormal::Ptr cloud = mesh_grid.getLandingCloud(minPoints);
+    auto t_cloud = sortCloudByLandingness(cloud, transform);
+    ROS_INFO("best spot %f %f %f", cloud->at(0).x, cloud->at(0).y, cloud->at(0).z);
+    cloud->header.frame_id = "dense_cam";
+    pcl_conversions::toPCL(msg->header.stamp, cloud->header.stamp);
+    
     norm_pub_.publish(*cloud);
+    
+    
     return;
     
     /*for(auto meshblock : msg->mesh_blocks)
@@ -302,6 +367,37 @@ class SLAD
     norm_pub_.publish(cloud);*/
     
 
+  }
+
+  PointCloudNormal::Ptr sortCloudByLandingness(PointCloudNormal::Ptr landing_cloud,
+                              Eigen::Affine3f transform) {
+    ROS_INFO("best spot:");
+    float best_cost = 1e10;
+    geometry_msgs::Vector3 best_spot;
+    struct {
+      bool operator()(pcl::PointXYZRGB a, pcl::PointXYZRGB b) const {
+        ROS_INFO("comparing");
+        return a.getVector3fMap().squaredNorm() * (255 - a.b) < b.getVector3fMap().squaredNorm() * (255 - b.b);
+      }
+    }
+    better_than;
+
+    PointCloudNormal::Ptr transformed_cloud(new PointCloudNormal());
+    pcl::transformPointCloud(*landing_cloud, *transformed_cloud, transform);
+    ROS_INFO("transform ok");
+    for(auto& point : transformed_cloud->points) {
+      /*auto dist = point.x*point.x
+        + point.y*point.y
+        + point.z*point.z;*/
+      auto cost = (1.0 + (float)point.r/255)/(1 + (float)point.g/255);
+      
+      point.b = 255 - ((cost-0.5)/2)*255;
+    }
+    ROS_INFO("sorting");
+    std::sort(transformed_cloud->points.begin(), transformed_cloud->points.end(), better_than);
+    *landing_cloud = *transformed_cloud;
+    return transformed_cloud;
+    
   }
 
   // %Tag(CALLBACK)%
