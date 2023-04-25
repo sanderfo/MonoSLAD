@@ -21,11 +21,11 @@
         <param name="write_to_file_debug" value="false" />
         <param name="median_filter_kernel_size" value="5" />
         <param name="voxel_size" value="0.3" />
-        <param name="write_vis_images" value="false" />
-        <param name="grad_treshold" value="1.3" />
+        <param name="write_vis_images" value="true" />
+        <param name="grad_treshold" value="5.0" />
         <param name="laplacian_ksize" value="1" />
-        <param name="gaussian_ksize" value="7" />
-        <param name="gaussian_sigma" value="7.0" />
+        <param name="gaussian_ksize" value="3" />
+        <param name="gaussian_sigma" value="5.0" />
             
         <rosparam file="$(find autonomous_landing)param/midair_left.yaml" command="load" />
             

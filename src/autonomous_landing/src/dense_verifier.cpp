@@ -10,6 +10,7 @@
 #include <geometry_msgs/TransformStamped.h>
 #include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/filters/frustum_culling.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/features/integral_image_normal.h>
 #include <opencv2/core/mat.hpp>
@@ -21,6 +22,101 @@
 #include "utilities.h"
 //#include <iostream>
 //#include <fstream>
+
+class BoundingTrapezoid {
+  public:
+  std::array<Eigen::Vector3d, 8> points;
+  std::array<Eigen::Vector3d, 8> points_transformed;
+  Eigen::Matrix3d K;
+  cv::Mat mask;
+  //Eigen::Matrix3d K_inv;
+  int width;
+  int height;
+  int min_x;
+  int max_x;
+  int min_y;
+  int max_y;
+  BoundingTrapezoid(int width, int height, double min_depth, double max_depth, Eigen::Matrix3d K_in){
+    K = K_in;
+    //K_inv = K.inverse();
+    this->width = width;
+    this->height = height;
+    mask = cv::Mat(height, width, CV_8UC1, cv::Scalar(255));
+
+    min_x = 0;
+    max_x = width;
+    min_y = 0;
+    max_y = height;
+
+    //(position[1] - this->K(0,2))*pixel/this->K(0,0);
+    //(position[0] - this->K(1,2))*pixel/this->K(1,1);
+
+    points[0] = {(3-K(0,2))*min_depth/K(0,0), (3-K(1,2))*min_depth/K(1,1), min_depth};
+    points[1] = {(3-K(0,2))*max_depth/K(0,0), (3-K(1,2))*max_depth/K(1,1), max_depth};
+    points[2] = {(3-K(0,2))*min_depth/K(0,0), (height - 3 - K(1,2))*min_depth/K(1,1), min_depth};
+    points[3] = {(3-K(0,2))*max_depth/K(0,0), (height - 3 - K(1,2))*max_depth/K(1,1), max_depth};
+    points[4] = {(width - 3 - K(0,2))*min_depth/K(0,0), (3 - K(1,2))*min_depth/K(1,1), min_depth};
+    points[5] = {(width - 3 - K(0,2))*max_depth/K(0,0), (3 - K(1,2))*max_depth/K(1,1), max_depth};
+    points[6] = {(width - 3 - K(0,2))*min_depth/K(0,0), (height - 3 - K(1,2))*min_depth/K(1,1), min_depth};
+    points[7] = {(width - 3 - K(0,2))*max_depth/K(0,0), (height - 3 - K(1,2))*max_depth/K(1,1), max_depth};
+    
+  }
+
+  void adjustRect(Eigen::Transform<double, 3, 1, 0> matrix_transform) {
+    int _min_x = width;
+    int _max_x = 0;
+    int _min_y = height;
+    int _max_y = 0;
+    std::vector<cv::Point> polygon_points(8);
+    std::vector<cv::Point> hull(8);
+    for(int i = 0; i < 8; i++){
+      Eigen::Vector3d point_transformed = K * matrix_transform * points[i];
+      int u = point_transformed[0]/point_transformed[2];
+      int v = point_transformed[1]/point_transformed[2];
+      polygon_points[i] = cv::Point(u,v);
+      
+      /*if(u < _min_x) _min_x = u;
+      if(u > _max_x) _max_x = u;
+      if(v < _min_y) _min_y = v;
+      if(v > _max_y) _max_y = v;*/
+    }
+
+    //polygon_points[0].push_back(cv::Point(10, 10));
+    //polygon_points[0].push_back(cv::Point(10, 100));
+    //polygon_points[0].push_back(cv::Point(100, 100));
+    
+    cv::convexHull(polygon_points, hull);
+    cv::Mat cnt = cv::Mat::zeros(height, width, CV_8UC1);;
+    
+    
+    std::vector<std::vector<cv::Point>> hulls;
+    hulls.push_back(hull);
+    cv::drawContours(cnt, hulls, -1, cv::Scalar(255, 255, 255), -1);
+    mask = mask & cnt;
+    /*min_x = std::max(min_x, _min_x);
+    max_x = std::min(max_x, _max_x);
+    min_y = std::max(min_y, _min_y);
+    max_y = std::min(max_y, _max_y);*/
+
+    
+  }
+  cv::Mat getRect(){
+    /*min_x = std::max(min_x, 0);
+    max_x = std::min(max_x, width);
+    min_y = std::max(min_y, 0);
+    max_y = std::min(max_y, height);*/
+    
+    cv::Mat out;
+    
+
+    cv::bitwise_not(mask, out);
+    return out;//std::vector<int> {min_x, max_x, min_y, max_y};
+  }
+
+
+
+
+};
 
 using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
 using PointCloudRGB = pcl::PointCloud<pcl::PointXYZRGB>;
@@ -353,8 +449,69 @@ class DenseVerifier
 
         float min_z = 2.5f*avg_distance;
         float max_z = 100.0f*avg_distance;
-        //float min_z = 1.0f;
-        //float max_z = 15.0f;
+
+        Eigen::MatrixXd A((sweep_n-1)*5, 4);
+        Eigen::VectorXd b((sweep_n-1)*5);
+        int normals_counter = 0;
+        auto ref_transform = tf2::transformToEigen(transform_array[ref_index]);
+        for(int i = 0; i < sweep_n; i++){
+          if(i != ref_index){
+            //Eigen::MatrixXd N_a(5, 3);
+            double norm_factor_x = 1/std::sqrt(K(0,0)*K(0,0) + K(0,2)*K(0,2));
+            double norm_factor_y = 1/std::sqrt(K(1,1)*K(1,1) + K(1,2)*K(1,2));
+            
+            auto relative_transform = (tf2::transformToEigen(transform_array[i]) * ref_transform.inverse(Eigen::Isometry)).matrix();
+            relative_transform.transposeInPlace();
+            //auto relative_orientation = relative_transform.rotation();
+            //auto relative_translation = relative_transform.translation();
+            /*N_a << 0, 0, 1,
+                   K(0,0), 0, K(0,2),
+                   -K(0,0), 0, K(0,2),
+                   0, K(1,1), K(1,2),
+                   0, -K(1,1), K(1,2);
+            */
+            Eigen::MatrixXd N_a(5, 4);
+            N_a << 0, 0, 1, -1,
+                   K(0,0)*norm_factor_x, 0, K(0,2)*norm_factor_x, 0,
+                   -K(0,0)*norm_factor_x, 0, K(0,2)*norm_factor_x, 0,
+                   0, K(1,1)*norm_factor_y, K(1,2)*norm_factor_y, 0,
+                   0, -K(1,1)*norm_factor_y, K(1,2)*norm_factor_y, 0;
+            N_a.transposeInPlace();
+            N_a = relative_transform * N_a;
+            
+            N_a.transposeInPlace();
+        
+            b.segment(normals_counter*5, 5) = N_a.col(3);
+           
+            A.block(normals_counter*5, 0, 5, 4) = N_a;
+            //N_test.topLeftCorner(1, 3).normalize();
+            
+            
+            normals_counter++;
+            
+          }
+        }
+        ROS_INFO("plane normals");
+        ROS_INFO("%f %f %f %f", A(0, 0), A(0, 1), A(0, 2), b(0));
+        ROS_INFO("%f %f %f %f", A(1, 0), A(1, 1), A(1, 2), b(1));
+        ROS_INFO("%f %f %f %f", A(2, 0), A(2, 1), A(2, 2), b(2));
+        ROS_INFO("%f %f %f %f", A(3, 0), A(3, 1), A(3, 2), b(3));
+        ROS_INFO("%f %f %f %f", A(4, 0), A(4, 1), A(4, 2), b(4));
+        
+        
+
+        /*BoundingTrapezoid bt(image_sweeping_array[0].size().width, image_sweeping_array[0].size().height, std::max(1.0f, min_z), 20.0, K);
+        auto ref_transform = tf2::transformToEigen(transform_array[ref_index]);
+        for(int i = 0; i < transform_array.size(); i++) {
+          if(i != ref_index){
+            auto relative_transform = ref_transform * tf2::transformToEigen(transform_array[i]).inverse(Eigen::Isometry);
+            bt.adjustRect(relative_transform);
+          }
+          
+        }
+        auto bb = bt.getRect();*/
+        //ROS_INFO("bb %d %d %d %d", bb[0], bb[1], bb[2], bb[3]);
+
 
         PSL::CudaPlaneSweep cps;
         cps.setZRange(min_z, max_z);
@@ -449,7 +606,34 @@ class DenseVerifier
         
         
         cv::Mat_<float> depth_cv(height, width, depth_map.getDataPtr());
+        ROS_INFO("using mask:");
+
+        // culling:
+        cv::Mat depth_cv2(depth_cv);
+
+        depth_cv2.forEach<float>([this, A, b](float &pixel, const int position[]) -> void {
+          double x = (position[1] - this->K(0,2))*pixel/this->K(0,0);
+          double y = (position[0] - this->K(1,2))*pixel/this->K(1,1);
+          double z = pixel;
+          
+          Eigen::Vector4d point_eigen(x, y, z, 1);
+
+          Eigen::VectorXd d = A*point_eigen;
+          
+          for(int i = 0; i < d.size(); i++){
+            if(d(i) < 0) {
+              pixel = 0.0f;
+              break;
+            }
+          }
+        });
+        //depth_cv.setTo(0.0, bb);
+        //depth_cv(cv::Range(0, height), cv::Range(0, bb[0])) = 0.0;
+        //depth_cv(cv::Range(0, height), cv::Range(bb[1], width)) = 0.0;
         
+        
+        //depth_cv(cv::Range(0, bb[2]), cv::Range(0, width)) = 0.0;
+        //depth_cv(cv::Range(bb[3], height), cv::Range(0, width)) = 0.0;
         cv::Mat depth_cv_filtered;
         
         cv::Mat_<float> costs_cv(height, width, costs.getDataPtr());
@@ -471,20 +655,48 @@ class DenseVerifier
             }
             
         }
+        cv::Mat depth_median_blurred;
+        
+        
         cv::Mat grads;
         cv::Mat blurred_grads;
+        
+
+        //cv::GaussianBlur(depth_cv, depth_blurred, cv::Size(gaussian_ksize, gaussian_ksize), gaussian_sigma);
+        //cv::medianBlur(depth_cv, depth_median_blurred, 5);
+        //cv::GaussianBlur(depth_median_blurred, depth_blurred, cv::Size(gaussian_ksize, gaussian_ksize), gaussian_sigma);
+        //cv::Laplacian(depth_blurred, edges, -1, laplacian_ksize); 
+        
         cv::Laplacian(depth_cv, grads, -1, laplacian_ksize);
         cv::GaussianBlur(cv::abs(grads), blurred_grads, cv::Size(gaussian_ksize, gaussian_ksize), gaussian_sigma);
-
-        cv::Mat grad_mask = blurred_grads > grad_treshold;
-
-
+        cv::Mat blurred_grads_corrected = cv::max(blurred_grads, cv::abs(grads));
+        cv::Mat grad_mask = blurred_grads_corrected > grad_treshold;
+        //cv::Mat edges_mask = cv::abs(edges) < grad_treshold / 2;
+        //cv::Mat total_mask = grad_mask & edges_mask;
+        
+        
+        /*if(write_vis_images){
+          std::string filename = "/home/nvidia/AutonomousLanding/test/" + std::to_string(image_headers[ref_index].stamp.toNSec());
+          cv::imwrite(filename + "ref" + std::to_string(ref_index)+ "depth_blurred.png",  depth_cv_to_inv(depth_median_blurred, min_z, max_z));
+        }*/
+        //depth_cv = depth_median_blurred;
+        int border_size = gaussian_ksize/2;
         depth_cv.setTo(0.0, grad_mask);
+        depth_cv(cv::Range(0, border_size), cv::Range(0, width)) = 0.0;
+        depth_cv(cv::Range(height-border_size, height), cv::Range(0, width)) = 0.0;
+        depth_cv(cv::Range(0, height), cv::Range(0, border_size)) = 0.0;
+        depth_cv(cv::Range(0, height), cv::Range(width-border_size, width)) = 0.0;
+        
+        
+        //width -= gaussian_ksize-1;
+        //height -= gaussian_ksize-1;
         if(write_vis_images){
           std::string filename = "/home/nvidia/AutonomousLanding/test/" + std::to_string(image_headers[ref_index].stamp.toNSec());
-          cv::imwrite(filename + "ref" + std::to_string(ref_index)+ "depth_cost_uniq.png",  depth_cv_to_inv(depth_cv, min_z, max_z));
+          
+          cv::imwrite(filename + "ref" + std::to_string(ref_index)+ "depth_laplace.png",  depth_cv_to_inv(depth_cv, min_z, max_z));
           
         }
+        
 
 
         
@@ -506,10 +718,12 @@ class DenseVerifier
         ordered_pointcloud->width = width;
         ordered_pointcloud->is_dense = false;
         ordered_pointcloud->resize(height * width);
+
         
         typedef float Pixel;
+
         
-        depth_cv_filtered.forEach<Pixel>([this, ordered_pointcloud](Pixel &pixel, const int position[]) -> void {
+        depth_cv_filtered.forEach<Pixel>([this, ordered_pointcloud, A, b, grad_mask](Pixel &pixel, const int position[]) -> void {
           pcl::PointXYZ pcl_point;
           if (pixel > 0.0 && pixel < 30.0 /*&& pixel.y < matching_threshold && pixel.z < uniqueness_threshold*/)
                 {
@@ -517,10 +731,12 @@ class DenseVerifier
                       pcl_point.x = (position[1] - this->K(0,2))*pixel/this->K(0,0);
                       pcl_point.y = (position[0] - this->K(1,2))*pixel/this->K(1,1);
                       pcl_point.z = pixel;
-                    
+
+                      
                       //pcl_point.intensity  = this->image_sweeping_array[this->ref_id].at<uint8_t>(position[0],position[1]);
-                    
+                      
                       ordered_pointcloud->at(position[1], position[0]) = pcl_point;
+                      
                       //ordered_pointcloud->erase(iterator position)
                       //ordered_pointcloud->push_back(pcl_point);
                     
@@ -530,8 +746,10 @@ class DenseVerifier
               else {
                 pcl_point.z = NAN;
                 ordered_pointcloud->at(position[1], position[0]) = pcl_point;
+                pixel = 0.0;
               }
         });
+        
         
         //integral images
         Eigen::Vector3d z_dir = tf2::transformToEigen(transform_array[ref_index]).rotation().col(2);
@@ -633,15 +851,15 @@ class DenseVerifier
                 pt.y = centroid.y;
                 pt.z = centroid.z;
                 // undo this for normals
-                /*pt.r = 255*smoothstep(0.0, 0.03, normal.curvature);
+                pt.r = 255*lerp(0.0, 0.05, normal.curvature);
                 Eigen::Vector3d eig_normal(normal.normal[0], normal.normal[1], normal.normal[2]);
-                pt.g = 255*loglerp(0.85, 1.0, z_dir.dot(eig_normal));
-                pt.b = 0;*/
-
+                pt.g = 255*lerp(0.85, 1.0, z_dir.dot(eig_normal));
+                pt.b = 0;
+                /*
                 pt.r = image_sweeping_array[ref_index].at<uint8_t>(index_y,index_x);
                 pt.g = image_sweeping_array[ref_index].at<uint8_t>(index_y,index_x);
                 pt.b = image_sweeping_array[ref_index].at<uint8_t>(index_y,index_x);
-                
+                */
                 colored_pointcloud->push_back(pt);
 
                 
@@ -759,12 +977,20 @@ class DenseVerifier
         dense_pub_.publish(colored_pointcloud);
         //ROS_INFO("total time %f", (ros::Time::now()- t0).toSec());
     }
+    auto lerp(double edge0, double edge1, double x) -> double {
+      if(x < edge0) return 0.0;
+      if(x > edge1) return 1.0;
+
+      x = (x - edge0) / (edge1 - edge0);
+      return x;
+
+    }
 
     auto smoothstep(double edge0, double edge1, double x) -> double {
       if(x < edge0) return 0.0;
       if(x > edge1) return 1.0;
 
-      x = (x - edge0) / (edge1 - edge0);
+      x = lerp(edge0, edge1, x);
       return x*x*(3-2*x);
 
     }

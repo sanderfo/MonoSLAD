@@ -7,7 +7,7 @@
         <param name="poses_supplied" value="true" />
         <param name="cam_frame_topic" value="dense_cam" />
         <param name="world_frame_topic" value="world" />
-        <param name="image_scale" value="0.5" />
+        <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
         <param name="sweep_n" value="6" />
         <param name="window_size" value="7" />
@@ -22,9 +22,9 @@
         <param name="median_filter_kernel_size" value="5" />
         <param name="voxel_size" value="0.2" />
         <param name="write_vis_images" value="false" />
-        <param name="grad_treshold" value="0.4" />
+        <param name="grad_treshold" value="3.0" />
         <param name="laplacian_ksize" value="1" />
-        <param name="gaussian_ksize" value="7" />
+        <param name="gaussian_ksize" value="5" />
         <param name="gaussian_sigma" value="5.0" />
             
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
@@ -34,9 +34,11 @@
     <node pkg="autonomous_landing" name="detector" type="detector" output="screen" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
         <remap from="detector/input_mesh" to="/voxblox_midair/voxblox_node/mesh" />
+        <param name="voxel_size" value="0.2" />
         <param name="boxSize" value="3.0" />
         <param name="minPoints" value="16" />
-        <param name="voxel_size" value="0.2" />
+        <param name="max_angle_offset_deg" value="20.0"/>
+        <param name="max_curvature" value="0.02"/>
         
             
     </node>
