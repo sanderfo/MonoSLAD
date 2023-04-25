@@ -218,7 +218,7 @@ class SLAD
     n_.getParam("max_curvature", max_curvature);
 
     minimum_z_component = 255*lerp(0.85, 1.0, std::cos(max_angle_offset*3.14/180));
-    max_curvature_8bit = 255*lerp(0.85, 1.0, 0.05);
+    max_curvature_8bit = 255*lerp(0.0, 0.05, max_curvature);
     //pub_ = n_.advertise<PointCloudNormal>("landing_pointcloud", 2);
     norm_pub_ = n_.advertise<PointCloudNormal>("normal_pointcloud", 2);
 
