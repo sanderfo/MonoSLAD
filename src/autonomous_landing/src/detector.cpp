@@ -50,16 +50,8 @@ class Mesh2D {
     bool origin_set = false;
     for(auto mesh_block : mesh.mesh_blocks) {
       
-      
-      
-      //int index_x = (int)std::floor((mesh_block.index[0])*block_scale);
-      //int index_y = (int)std::floor((point.y-origin_y)*boxSizeInv);
-      /*std::string key = std::to_string(mesh_block.index[0]) + " " + std::to_string(mesh_block.index[1]);
-      if(cloud_map.count(key) == 0) {
-        PointCloudNormal::Ptr inner_pointcloud (new PointCloudNormal());
-        cloud_map[key] = inner_pointcloud;
-      }*/
-      for(int i = 0; i < mesh_block.x.size(); i++){
+      //saving computation time by only considering one vertex per face
+      for(int i = 0; i < mesh_block.x.size(); i += 3){ 
         
         pcl::PointXYZRGB point;
         
@@ -103,17 +95,6 @@ class Mesh2D {
     for(auto kv : cloud_map) {
       if(kv.second->size() > min_points) {
         
-        /*float nx; float ny; float nz; float curvature;
-        std::vector<int> indices(kv.second->size());
-        std::iota(indices.begin(), indices.end(), 0);
-    
-        NormalEstimationRGB ne;
-        ne.setInputCloud(kv.second);
-  
-        ne.computePointNormal(*kv.second, indices, nx, ny, nz, curvature);
-        Eigen::Vector4f centroid = ne.get_centroid();
-        */
-        //std::max_element(kv.second->points.begin(), kv.second->points.end());
         pcl::PointXYZRGB point;
         uint8_t max_r = 0;
         uint8_t min_g = 255;
@@ -143,51 +124,9 @@ class Mesh2D {
           landing_pc->push_back(point);
         }
         
-        
-
-      
+    
         
       };
-    
-    // inheriting flatness and curvature from neighbouring cells
-    /*for(auto kv : landing_map) {
-      int x = std::stoi(kv.first.substr(0, kv.first.find(" ")));
-      int y = std::stoi(kv.first.substr(kv.first.find(" "), kv.first.length()));
-      uint8_t worst_nz = kv.second.g;
-      uint8_t worst_curvature = kv.second.r;
-      bool has_neighbours = true;
-      for(int i = -1; i < 2; i++)
-      {
-        for(int j = -1; j < 2; j++) {
-          if(has_neighbours){
-            std::string key = std::to_string(x+i) + " " + std::to_string(y+j);
-            if(landing_map.count(key) == 0) 
-            {
-              has_neighbours = false;
-              worst_nz = 0;
-              worst_curvature = 255;
-              
-            }
-            else{
-              worst_nz = std::min(worst_nz, landing_map[key].g);
-              worst_curvature = std::max(worst_curvature, landing_map[key].r);
-            }
-          }
-        }
-      }
-      if(has_neighbours){
-        pcl::PointXYZRGB new_point;
-        new_point.x = kv.second.x;
-        new_point.y = kv.second.y;
-        new_point.z = kv.second.z;
-        new_point.g = worst_nz;
-        new_point.r = worst_curvature;
-        new_point.b = kv.second.b;
-        landing_pc->push_back(new_point);
-      } 
-    }*/
-
-      
       
     }
 
