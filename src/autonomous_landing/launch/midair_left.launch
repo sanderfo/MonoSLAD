@@ -20,12 +20,15 @@
         <param name="max_depth_change_factor" value="200.0" />
         <param name="write_to_file_debug" value="false" />
         <param name="median_filter_kernel_size" value="5" />
-        <param name="voxel_size" value="0.3" />
-        <param name="write_vis_images" value="true" />
-        <param name="grad_treshold" value="5.0" />
+        <param name="voxel_size" value="0.2" />
+        <param name="write_vis_images" value="false" />
+        <param name="grad_treshold" value="3.0" />
         <param name="laplacian_ksize" value="1" />
-        <param name="gaussian_ksize" value="3" />
+        <param name="gaussian_ksize" value="5" />
         <param name="gaussian_sigma" value="5.0" />
+        <param name="eval" value="true" />
+        <param name="eval_filename" value="/home/nvidia/AutonomousLanding/eval/left.json" />
+        
             
         <rosparam file="$(find autonomous_landing)param/midair_left.yaml" command="load" />
             
@@ -35,8 +38,11 @@
         <remap from="detector/input_pointcloud" to="dense/dense_pointcloud" />
         <remap from="detector/input_mesh" to="/voxblox_midair/voxblox_node/mesh" />
         <param name="boxSize" value="3.0" />
-        <param name="minPoints" value="16" />
-        <param name="voxel_size" value="0.3" />
+        <param name="minPoints" value="500" />
+        <param name="voxel_size" value="0.2" />
+        <param name="max_angle_offset_deg" value="20.0"/>
+        <param name="max_curvature" value="0.02"/>
+        
         
             
     </node>

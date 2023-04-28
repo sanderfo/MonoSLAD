@@ -26,6 +26,8 @@
         <param name="laplacian_ksize" value="1" />
         <param name="gaussian_ksize" value="5" />
         <param name="gaussian_sigma" value="5.0" />
+        <param name="eval" value="true" />
+        <param name="eval_filename" value="/home/nvidia/AutonomousLanding/eval/down.json" />
             
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
             

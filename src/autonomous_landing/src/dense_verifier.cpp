@@ -16,122 +16,23 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/core/persistence.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include "psl_base/cameraMatrix.h"
 #include <psl_stereo/cudaPlaneSweep.h>
 #include "utilities.h"
-//#include <iostream>
-//#include <fstream>
-
-class BoundingTrapezoid {
-  public:
-  std::array<Eigen::Vector3d, 8> points;
-  std::array<Eigen::Vector3d, 8> points_transformed;
-  Eigen::Matrix3d K;
-  cv::Mat mask;
-  //Eigen::Matrix3d K_inv;
-  int width;
-  int height;
-  int min_x;
-  int max_x;
-  int min_y;
-  int max_y;
-  BoundingTrapezoid(int width, int height, double min_depth, double max_depth, Eigen::Matrix3d K_in){
-    K = K_in;
-    //K_inv = K.inverse();
-    this->width = width;
-    this->height = height;
-    mask = cv::Mat(height, width, CV_8UC1, cv::Scalar(255));
-
-    min_x = 0;
-    max_x = width;
-    min_y = 0;
-    max_y = height;
-
-    //(position[1] - this->K(0,2))*pixel/this->K(0,0);
-    //(position[0] - this->K(1,2))*pixel/this->K(1,1);
-
-    points[0] = {(3-K(0,2))*min_depth/K(0,0), (3-K(1,2))*min_depth/K(1,1), min_depth};
-    points[1] = {(3-K(0,2))*max_depth/K(0,0), (3-K(1,2))*max_depth/K(1,1), max_depth};
-    points[2] = {(3-K(0,2))*min_depth/K(0,0), (height - 3 - K(1,2))*min_depth/K(1,1), min_depth};
-    points[3] = {(3-K(0,2))*max_depth/K(0,0), (height - 3 - K(1,2))*max_depth/K(1,1), max_depth};
-    points[4] = {(width - 3 - K(0,2))*min_depth/K(0,0), (3 - K(1,2))*min_depth/K(1,1), min_depth};
-    points[5] = {(width - 3 - K(0,2))*max_depth/K(0,0), (3 - K(1,2))*max_depth/K(1,1), max_depth};
-    points[6] = {(width - 3 - K(0,2))*min_depth/K(0,0), (height - 3 - K(1,2))*min_depth/K(1,1), min_depth};
-    points[7] = {(width - 3 - K(0,2))*max_depth/K(0,0), (height - 3 - K(1,2))*max_depth/K(1,1), max_depth};
-    
-  }
-
-  void adjustRect(Eigen::Transform<double, 3, 1, 0> matrix_transform) {
-    int _min_x = width;
-    int _max_x = 0;
-    int _min_y = height;
-    int _max_y = 0;
-    std::vector<cv::Point> polygon_points(8);
-    std::vector<cv::Point> hull(8);
-    for(int i = 0; i < 8; i++){
-      Eigen::Vector3d point_transformed = K * matrix_transform * points[i];
-      int u = point_transformed[0]/point_transformed[2];
-      int v = point_transformed[1]/point_transformed[2];
-      polygon_points[i] = cv::Point(u,v);
-      
-      /*if(u < _min_x) _min_x = u;
-      if(u > _max_x) _max_x = u;
-      if(v < _min_y) _min_y = v;
-      if(v > _max_y) _max_y = v;*/
-    }
-
-    //polygon_points[0].push_back(cv::Point(10, 10));
-    //polygon_points[0].push_back(cv::Point(10, 100));
-    //polygon_points[0].push_back(cv::Point(100, 100));
-    
-    cv::convexHull(polygon_points, hull);
-    cv::Mat cnt = cv::Mat::zeros(height, width, CV_8UC1);;
-    
-    
-    std::vector<std::vector<cv::Point>> hulls;
-    hulls.push_back(hull);
-    cv::drawContours(cnt, hulls, -1, cv::Scalar(255, 255, 255), -1);
-    mask = mask & cnt;
-    /*min_x = std::max(min_x, _min_x);
-    max_x = std::min(max_x, _max_x);
-    min_y = std::max(min_y, _min_y);
-    max_y = std::min(max_y, _max_y);*/
-
-    
-  }
-  cv::Mat getRect(){
-    /*min_x = std::max(min_x, 0);
-    max_x = std::min(max_x, width);
-    min_y = std::max(min_y, 0);
-    max_y = std::min(max_y, height);*/
-    
-    cv::Mat out;
-    
-
-    cv::bitwise_not(mask, out);
-    return out;//std::vector<int> {min_x, max_x, min_y, max_y};
-  }
-
-
-
-
-};
 
 using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
 using PointCloudRGB = pcl::PointCloud<pcl::PointXYZRGB>;
 using PointCloudNormal = pcl::PointCloud<pcl::Normal>;
-class NormalEstimationXYZ : public pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> {
-  public:
-  auto get_centroid() -> Eigen::Vector4f {
-    return xyz_centroid_;
-  }
-};
+
 class DenseVerifier
 {
     public:
     DenseVerifier() 
     {
+      n_.getParam("eval", eval);
+      n_.getParam("eval_filename", eval_filename);
       n_.getParam("laplacian_ksize", laplacian_ksize);
       n_.getParam("gaussian_ksize", gaussian_ksize);
       n_.getParam("gaussian_sigma", gaussian_sigma);
@@ -252,7 +153,7 @@ class DenseVerifier
         
       image_headers = std::vector<std_msgs::Header>(sweep_n);
 
-      
+      //fs.open(eval_filename, cv::FileStorage::WRITE);
     }
 
     void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
@@ -408,11 +309,13 @@ class DenseVerifier
     ros::Time ref_stamp = ros::Time::now();
     int image_counter = 0;
 
+    bool eval = false;
     bool write_vis_images = false;
     bool write_to_file_debug = false;
     std::ofstream out_file = std::ofstream("/home/nvidia/AutonomousLanding/test/transforms.txt");
     
-
+    std::string eval_filename;
+    cv::FileStorage fs;
     void planeSweep() 
     {
       auto t0 = ros::Time::now();
@@ -451,7 +354,7 @@ class DenseVerifier
         float max_z = 100.0f*avg_distance;
 
         Eigen::MatrixXd A((sweep_n-1)*5, 4);
-        Eigen::VectorXd b((sweep_n-1)*5);
+        
         int normals_counter = 0;
         auto ref_transform = tf2::transformToEigen(transform_array[ref_index]);
         for(int i = 0; i < sweep_n; i++){
@@ -480,8 +383,7 @@ class DenseVerifier
             N_a = relative_transform * N_a;
             
             N_a.transposeInPlace();
-        
-            b.segment(normals_counter*5, 5) = N_a.col(3);
+      
            
             A.block(normals_counter*5, 0, 5, 4) = N_a;
             //N_test.topLeftCorner(1, 3).normalize();
@@ -491,28 +393,7 @@ class DenseVerifier
             
           }
         }
-        ROS_INFO("plane normals");
-        ROS_INFO("%f %f %f %f", A(0, 0), A(0, 1), A(0, 2), b(0));
-        ROS_INFO("%f %f %f %f", A(1, 0), A(1, 1), A(1, 2), b(1));
-        ROS_INFO("%f %f %f %f", A(2, 0), A(2, 1), A(2, 2), b(2));
-        ROS_INFO("%f %f %f %f", A(3, 0), A(3, 1), A(3, 2), b(3));
-        ROS_INFO("%f %f %f %f", A(4, 0), A(4, 1), A(4, 2), b(4));
         
-        
-
-        /*BoundingTrapezoid bt(image_sweeping_array[0].size().width, image_sweeping_array[0].size().height, std::max(1.0f, min_z), 20.0, K);
-        auto ref_transform = tf2::transformToEigen(transform_array[ref_index]);
-        for(int i = 0; i < transform_array.size(); i++) {
-          if(i != ref_index){
-            auto relative_transform = ref_transform * tf2::transformToEigen(transform_array[i]).inverse(Eigen::Isometry);
-            bt.adjustRect(relative_transform);
-          }
-          
-        }
-        auto bb = bt.getRect();*/
-        //ROS_INFO("bb %d %d %d %d", bb[0], bb[1], bb[2], bb[3]);
-
-
         PSL::CudaPlaneSweep cps;
         cps.setZRange(min_z, max_z);
         cps.setMatchWindowSize(window_size, window_size);
@@ -611,7 +492,7 @@ class DenseVerifier
         // culling:
         cv::Mat depth_cv2(depth_cv);
 
-        depth_cv2.forEach<float>([this, A, b](float &pixel, const int position[]) -> void {
+        depth_cv2.forEach<float>([this, A](float &pixel, const int position[]) -> void {
           double x = (position[1] - this->K(0,2))*pixel/this->K(0,0);
           double y = (position[0] - this->K(1,2))*pixel/this->K(1,1);
           double z = pixel;
@@ -708,6 +589,10 @@ class DenseVerifier
           cv::imwrite(filename + "ref" + std::to_string(ref_index)+"depth_median_filtered.png",  depth_cv_to_inv(depth_cv_filtered, min_z, max_z));
           
         }
+        if(eval){
+          depth_cv_to_tiff(depth_cv_filtered, ref_index, "final");
+        }
+        
         //std::vector<cv::Mat> arr {depth_cv_filtered, costs_cv, unique_cv};
 
         //cv::Mat merged;
@@ -723,7 +608,7 @@ class DenseVerifier
         typedef float Pixel;
 
         
-        depth_cv_filtered.forEach<Pixel>([this, ordered_pointcloud, A, b, grad_mask](Pixel &pixel, const int position[]) -> void {
+        depth_cv_filtered.forEach<Pixel>([this, ordered_pointcloud](Pixel &pixel, const int position[]) -> void {
           pcl::PointXYZ pcl_point;
           if (pixel > 0.0 && pixel < 30.0 /*&& pixel.y < matching_threshold && pixel.z < uniqueness_threshold*/)
                 {
@@ -861,20 +746,7 @@ class DenseVerifier
                 pt.b = image_sweeping_array[ref_index].at<uint8_t>(index_y,index_x);
                 */
                 colored_pointcloud->push_back(pt);
-
-                
-                
-                /*if(!std::isnan(ordered_pointcloud->at(i+k, j+l).z))
-                {
-                  pcl::PointXYZ pointxyz = ordered_pointcloud->at(i+k, j+l);
-                  //depth_max = std::max<double>(pointxyz.z, depth_max);
-                  centroid.x += pointxyz.x;
-                  centroid.y += pointxyz.y;
-                  centroid.z += pointxyz.z;
-                  depth_counts++;
-                  }*/
-                
-                }
+              }
             }
 
             
@@ -888,37 +760,7 @@ class DenseVerifier
           }
 
         }
-        //ne.computePointNormal(const int pos_x, const int pos_y, const unsigned int point_index, Normal &normal)
-        //ne.compute(*normals);
-
-        //pcl::PointCloud<pcl::PointNormal>::Ptr concat_pointcloud (new pcl::PointCloud<pcl::PointNormal>);
         
-        //pcl::concatenateFields(*ordered_pointcloud, *normals, *concat_pointcloud);
-        
-        
-        
-        //auto colored_pointcloud = concat_pointcloud;
-        
-        /*for(auto pt : concat_pointcloud->points){
-          if(std::isnan(pt.curvature)) continue;
-          pcl::PointXYZRGB rgb_point;
-          rgb_point.x = pt.x;
-          rgb_point.y = pt.y;
-          rgb_point.z = pt.z;
-          rgb_point.r = 255*smoothstep(0.0, 0.015, pt.curvature);
-          Eigen::Vector3d eig_normal(pt.normal[0], pt.normal[1], pt.normal[2]);
-          rgb_point.g = 255*smoothstep(0.9, 1.0, z_dir.dot(eig_normal));
-          rgb_point.b = 0;
-
-          colored_pointcloud->push_back(rgb_point);
-
-        }*/
-        //filtered_pointcloud->at(0,0).
-        
-        // remember to uncomment this
-        //remover.filter(*filtered_pointcloud);
-        
-
         cv::Mat depth_mat = depth_map_to_msg(depth_map, min_z, max_z);
         sensor_msgs::ImagePtr depth_msg = cv_bridge::CvImage(image_headers[sweep_n/2], "mono8", depth_mat).toImageMsg();
         
@@ -1065,6 +907,26 @@ class DenseVerifier
 		    header.stamp = ros::Time::now();
         return invDepthsMat;
     }
+
+    void depth_cv_to_tiff(cv::Mat_<float> depthsMat, int ref_index, std::string tag) {
+      //cv::Mat_<float> depthsMat(dM.getHeight(), dM.getWidth(), dM.getDataPtr());
+      
+      std::string element_name = tag + std::to_string(image_headers[ref_index].stamp.toNSec());
+      //cv::Mat_<double> depths_double;
+      //depths_double = depthsMat;
+      //ROS_INFO("d %f", depthsMat[100][100]);
+      //ROS_INFO("dd %lf", depths_double[100][100]);
+
+      //bool ok = cv::imwrite(filename + tag + ".tiff", depths_double);
+
+      //ROS_INFO("write ok %u", ok);
+      fs.open(eval_filename, cv::FileStorage::APPEND);
+      fs.write(element_name, depthsMat);
+      fs.release();
+      return;
+    }
+
+
 };
 
 auto main(int argc, char **argv) -> int

@@ -42,3 +42,4 @@ MidAir/.vscode/c_cpp_properties.json
 MidAir/.vscode/settings.json
 MidAir/midair.bag
 MidAir/midair.bag
+src/PlaneSweepLib

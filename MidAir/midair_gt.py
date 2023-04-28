@@ -26,12 +26,13 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
     
 
     img_number = 0
+    step = 20
 
     for i, rot in enumerate(gt_rot):
         t = 1000 + i/100.0
         
-
-        if i % 4*10 == 0:
+        
+        if i % (4*step) == 0:
             
             
             normals_filename = camera_data["normals"][img_number]
@@ -41,31 +42,34 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
             normals_z_dir = normals*2 - 255
 
         
-            img_number += 10
-
+            img_number += step
+            
             quaternion = pyq.Quaternion(rot)
             
             R = quaternion.rotation_matrix
-            new_normals = np.zeros((normals_z_dir.shape[0], normals_z_dir.shape[1], 3, 1))
+            new_normals = np.zeros((normals_z_dir.shape[0], normals_z_dir.shape[1], 3, 1), dtype=np.float64)
             
             
             new_normals[:,:,0,0] = normals_z_dir[:,:,2]
             new_normals[:,:,1,0] = normals_z_dir[:,:,0]
             new_normals[:,:,2,0] = normals_z_dir[:,:,1]
+
             
-            test_tr = quaternion.rotate(new_normals[500,500])
-            new_tr = np.matmul(R, new_normals)
-            print(img_number-10, R.T)
-            print(new_tr[500,500], test_tr)
-           
-            out_z_dir = np.array((-new_tr + 255)/2)
+            print(img_number, R)
+            new_tr = np.matmul(R.T, new_normals)
+            
+            
+            #print(i, R)
+            out_z_dir = np.array(new_tr)
+            
             out = out_z_dir.copy()
-            out[:,:,0] = out_z_dir[:,:,1,:]
+            out[:,:,0] = out_z_dir[:,:,0,:]
             out[:,:,1] = out_z_dir[:,:,2,:]
-            out[:,:,2] = out_z_dir[:,:,0,:]
+            out[:,:,2] = out_z_dir[:,:,1,:]
 
-            print(normals[500,500], out[500,500], (quaternion.rotate(new_normals[500,500]) + 255)/2)
+            
 
+            
             ok = cv2.imwrite(normals_filename, out[:,:,:,0])
             
    
