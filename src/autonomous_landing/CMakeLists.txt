@@ -233,6 +233,10 @@ add_executable(dense_verifier src/dense_verifier.cpp)
 target_link_libraries(dense_verifier ${catkin_LIBRARIES} ${PCL_LIBRARIES} PSL ${OpenCV_LIBRARIES} ${CUDA_LIBRARIES} utilities)
 add_dependencies(dense_verifier autonomous_landing_generate_messages_cpp)
 
+add_executable(depth_gt_node src/depth_gt_node.cpp)
+target_link_libraries(depth_gt_node ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+add_dependencies(depth_gt_node autonomous_landing_generate_messages_cpp)
+
 add_executable(frame_modernizer src/frame_modernizer.cpp)
 target_link_libraries(frame_modernizer ${catkin_LIBRARIES})
 #add_dependencies(dense_verifier autonomous_landing_generate_messages_cpp)

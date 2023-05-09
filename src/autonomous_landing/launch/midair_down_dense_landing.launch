@@ -3,6 +3,7 @@
 
    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" clear_params="true" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
         <remap from="dense/cam" to="/cam_down" />
+        <param name="depths_supplied" value="false" />
         <param name="use_tf_transforms" value="true" />
         <param name="poses_supplied" value="true" />
         <param name="cam_frame_topic" value="dense_cam" />
@@ -26,7 +27,7 @@
         <param name="laplacian_ksize" value="1" />
         <param name="gaussian_ksize" value="5" />
         <param name="gaussian_sigma" value="5.0" />
-        <param name="eval" value="true" />
+        <param name="eval" value="false" />
         <param name="eval_filename" value="/home/nvidia/AutonomousLanding/eval/down.json" />
             
         <rosparam file="$(find autonomous_landing)param/midair_down.yaml" command="load" />
@@ -41,6 +42,8 @@
         <param name="minPoints" value="500" />
         <param name="max_angle_offset_deg" value="20.0"/>
         <param name="max_curvature" value="0.02"/>
+        <param name="save_to_file" value="false"/>
+        <param name="filename" value="midair_down.pcd"/>
         
             
     </node>

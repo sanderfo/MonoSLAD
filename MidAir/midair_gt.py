@@ -24,11 +24,15 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
     
     gt_rot = file["trajectory_4000"]["groundtruth"]["attitude"]
     
+    gt_vel = file["trajectory_4000"]["groundtruth"]["velocity"]
+    print(gt_vel[0])
+    
 
     img_number = 0
     step = 20
 
     for i, rot in enumerate(gt_rot):
+        break
         t = 1000 + i/100.0
         
         

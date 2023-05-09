@@ -2,12 +2,14 @@
 <param name="/use_sim_time" value="true" />
 
    <node pkg="autonomous_landing" name="dense" type="dense_verifier" output="screen" clear_params="true" > <!--launch-prefix="gdb -ex run -deletethis-args" -->
-        <remap from="dense/cam" to="/cam_left" />
+        <remap from="dense/cam" to="/cam_left_depth" />
+        <param name="depths_supplied" value="true" />
+        
         <param name="use_tf_transforms" value="true" />
         <param name="poses_supplied" value="true" />
         <param name="cam_frame_topic" value="dense_cam" />
         <param name="world_frame_topic" value="world" />
-        <param name="image_scale" value="0.25" />
+        <param name="image_scale" value="1" />
         <param name="safety_zone_size" value="5.0" />
         <param name="sweep_n" value="6" />
         <param name="window_size" value="7" />
@@ -20,7 +22,7 @@
         <param name="max_depth_change_factor" value="200.0" />
         <param name="write_to_file_debug" value="false" />
         <param name="median_filter_kernel_size" value="5" />
-        <param name="voxel_size" value="0.2" />
+        <param name="voxel_size" value="0.01" />
         <param name="write_vis_images" value="false" />
         <param name="grad_treshold" value="3.0" />
         <param name="laplacian_ksize" value="1" />
@@ -42,8 +44,8 @@
         <param name="voxel_size" value="0.2" />
         <param name="max_angle_offset_deg" value="25.0"/>
         <param name="max_curvature" value="0.03"/>
-        <param name="save_to_file" value="false"/>
-        <param name="filename" value="midair_left.pcd"/>
+        <param name="save_to_file" value="true"/>
+        <param name="filename" value="midair_left_depths.pcd"/>
         
         
             

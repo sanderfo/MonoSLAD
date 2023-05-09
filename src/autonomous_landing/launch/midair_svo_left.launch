@@ -5,7 +5,7 @@
         <remap from="dense/cam" to="/cam_left" />
         <param name="use_tf_transforms" value="true" />
         <param name="poses_supplied" value="true" />
-        <param name="cam_frame_topic" value="dense_cam" />
+        <param name="cam_frame_topic" value="cam_pos" />
         <param name="world_frame_topic" value="world" />
         <param name="image_scale" value="0.25" />
         <param name="safety_zone_size" value="5.0" />
@@ -42,7 +42,7 @@
         <param name="voxel_size" value="0.2" />
         <param name="max_angle_offset_deg" value="25.0"/>
         <param name="max_curvature" value="0.03"/>
-        <param name="save_to_file" value="false"/>
+        <param name="save_to_file" value="true"/>
         <param name="filename" value="midair_left.pcd"/>
         
         

@@ -33,7 +33,7 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
     gt_rot = file["trajectory_4000"]["groundtruth"]["attitude"]
     gt_pos = file["trajectory_4000"]["groundtruth"]["position"]
 
-    bag = rosbag.Bag("midair_gt.bag", "w")
+    bag = rosbag.Bag("midair_depths.bag", "w")
 
     bridge = CvBridge()
 
@@ -61,29 +61,27 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
             down_filename = camera_data["color_down"][img_number]
             left_filename = camera_data["color_left"][img_number]
             depth_filename = camera_data["depth"][img_number]
-            normals_filename = camera_data["normals"][img_number]
             
 
 
             image_down = cv2.imread(base_path + down_filename, cv2.IMREAD_GRAYSCALE)
             image_left = cv2.imread(base_path + left_filename, cv2.IMREAD_GRAYSCALE)
-            depth = open_float16(base_path + depth_filename)
-            normals = cv2.imread(base_path + normals_filename)*2 - 1
-            
-            normals_z_dir = np.zeros((normals.shape))
-
+            depth = np.float32(open_float16(base_path + depth_filename))
             
             
             img_number += 1
 
             down_msg = bridge.cv2_to_imgmsg(image_down, encoding="mono8")
             left_msg = bridge.cv2_to_imgmsg(image_left, encoding="mono8")
-
+            left_depth_msg = bridge.cv2_to_imgmsg(depth, encoding="passthrough")
+            
             down_msg.header.stamp = ros_time
             left_msg.header.stamp = ros_time
+            left_depth_msg.header.stamp = ros_time
 
             bag.write("cam_down", down_msg, ros_time)
             bag.write("cam_left", left_msg, ros_time)
+            bag.write("cam_left_depth", left_depth_msg, ros_time)
             
             posestamped = TransformStamped()
 
@@ -92,15 +90,6 @@ with h5py.File(base_path + "sensor_records.hdf5", "r") as file:
             posestamped.transform.rotation.y = rot[1]
             posestamped.transform.rotation.z = -rot[3]
 
-            quaternion = pyq.Quaternion(rot[0], rot[1], rot[2], rot[3])
-
-            for j in range(normals.shape[0]):
-                for k in range(normals.shape[1]):
-                    normal_body = np.array([normals[j,k,0], normals[j,k,2], normals[j,k,1]])
-                    normal_world = quaternion.rotate(normals[j,k])
-                    normals_z_dir[j,k] = normal_world[2]
-            
-            cv2.imwrite("normals_gt/" + normals_filename, normals_z_dir)
             posestamped.transform.translation.x = pos[1]
             posestamped.transform.translation.y = pos[0]
             posestamped.transform.translation.z = -pos[2]

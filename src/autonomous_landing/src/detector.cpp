@@ -13,6 +13,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/common/centroid.h>
 #include <pcl/features/linear_least_squares_normal.h>
+#include <pcl/io/pcd_io.h>
 #include <string>
 #include <opencv2/core/mat.hpp>
 #include "opencv2/imgproc.hpp"
@@ -39,56 +40,61 @@ class Mesh2D {
   std::unordered_map<std::string, PointCloudNormal::Ptr> cloud_map;
   std::unordered_map<std::string, pcl::PointXYZRGB> landing_map;
   std::unordered_map<std::string, pcl::PointXYZRGB> landing_map_out;
-  public: 
-  Mesh2D(voxblox_msgs::Mesh mesh, float box_size){
-    //int block_scale = (int)std::ceil(box_size / mesh.block_edge_length);
-    //auto grid_size = mesh.block_edge_length * block_scale;
-    constexpr float point_conv_factor =
+  float box_size;
+  public:
+    Mesh2D(voxblox_msgs::Mesh mesh, float box_size_in) {
+      // int block_scale = (int)std::ceil(box_size / mesh.block_edge_length);
+      // auto grid_size = mesh.block_edge_length * block_scale;
+      box_size = box_size_in;
+      constexpr float point_conv_factor =
           2.0f / std::numeric_limits<uint16_t>::max();
-    float origin_x;
-    float origin_y;
-    bool origin_set = false;
-    for(auto mesh_block : mesh.mesh_blocks) {
-      
-      //saving computation time by only considering one vertex per face
-      for(int i = 0; i < mesh_block.x.size(); i += 3){ 
-        
-        pcl::PointXYZRGB point;
-        
-        
-      point.x =
-          (static_cast<float>(mesh_block.x[i]) * point_conv_factor +
-           static_cast<float>(mesh_block.index[0])) *
-          mesh.block_edge_length;
-      point.y =
-          (static_cast<float>(mesh_block.y[i]) * point_conv_factor +
-           static_cast<float>(mesh_block.index[1])) *
-          mesh.block_edge_length;
-      point.z =
-          (static_cast<float>(mesh_block.z[i]) * point_conv_factor +
-           static_cast<float>(mesh_block.index[2])) *
-          mesh.block_edge_length;
+      float origin_x;
+      float origin_y;
+      bool origin_set = false;
+      for (auto mesh_block : mesh.mesh_blocks) {
 
-        if(!origin_set){
-          origin_set = true;
-          origin_x = point.x;
-          origin_y = point.y;
+        // saving computation time by only considering one vertex per face
+        for (int i = 0; i < mesh_block.x.size(); i += 3) {
+
+          pcl::PointXYZRGB point;
+
+          point.x = (static_cast<float>(mesh_block.x[i]) * point_conv_factor +
+                     static_cast<float>(mesh_block.index[0])) *
+                    mesh.block_edge_length;
+          point.y = (static_cast<float>(mesh_block.y[i]) * point_conv_factor +
+                     static_cast<float>(mesh_block.index[1])) *
+                    mesh.block_edge_length;
+          point.z = (static_cast<float>(mesh_block.z[i]) * point_conv_factor +
+                     static_cast<float>(mesh_block.index[2])) *
+                    mesh.block_edge_length;
+
+          if (!origin_set) {
+            origin_set = true;
+            origin_x = point.x;
+            origin_y = point.y;
+          }
+
+          point.r = mesh_block.r[i];
+          point.g = mesh_block.g[i];
+          point.b = mesh_block.b[i];
+          int index_x = (int)std::floor((point.x - origin_x) / box_size_in);
+          int index_y = (int)std::floor((point.y - origin_y) / box_size_in);
+          std::string key =
+              std::to_string(index_x) + " " + std::to_string(index_y);
+          if (cloud_map.count(key) == 0) {
+            PointCloudNormal::Ptr inner_pointcloud(new PointCloudNormal());
+            cloud_map[key] = inner_pointcloud;
+          }
+          cloud_map[key]->push_back(point);
         }
-        
-        point.r = mesh_block.r[i];
-        point.g = mesh_block.g[i];
-        point.b = mesh_block.b[i];
-        int index_x = (int)std::floor((point.x - origin_x)/box_size);
-        int index_y = (int)std::floor((point.y - origin_y)/box_size);
-        std::string key = std::to_string(index_x) + " " + std::to_string(index_y);
-        if(cloud_map.count(key) == 0) {
-          PointCloudNormal::Ptr inner_pointcloud (new PointCloudNormal());
-          cloud_map[key] = inner_pointcloud;
-        }
-        cloud_map[key]->push_back(point);
       }
     }
+
+  auto gaussian(float x, float sigma){
+    float exp_factor = std::exp(-0.5*(x/sigma)*(x/sigma));
+    return exp_factor;
   }
+
   auto getLandingCloud(int min_points, uint8_t min_z_comp, uint8_t max_curve) -> PointCloudNormal::Ptr {
     PointCloudNormal::Ptr landing_pc (new PointCloudNormal());
     landing_pc->header.frame_id = "world";
@@ -105,18 +111,61 @@ class Mesh2D {
           point.y += pt.y;
           point.z += pt.z;
         }
+        int r = 0;
+        int g = 255;
+        float sum_weight = 0;
+        point.x /= kv.second->size();
+        point.y /= kv.second->size();
+        point.z /= kv.second->size();
+        bool bad_pts = false;
 
-        
-        
+        for(auto pt : kv.second->points){
+          if(pt.r > max_curve || pt.g < min_z_comp){
+            bad_pts = true;
+            auto dist_2d = std::sqrt((point.x - pt.x) * (point.x - pt.x) +
+                                   (point.y - pt.y) * (point.y - pt.y));
+            auto normalized_dist = 2 * dist_2d / (box_size);
+            float weight = gaussian(dist_2d, 1);
+            if(pt.r > r){
+              float r_new = weight*pt.r;
+              if(r_new > r) {
+                r = r_new;
+              }
+            }
+              
+              
+            if(pt.g < g){
+              
+
+              float g_new = weight*pt.g;
+              if(g_new < g) {
+                g = g_new;
+              }
+            }
+              
+            sum_weight += weight;
+          }
+          
+        }
+
+        uint8_t ur;
+        uint8_t ug;
+
+        if(bad_pts){
+          ur = r;
+          ug = g;
+        }
+        else {
+          ur = max_r;
+          ug = min_g;
+        }
         //point.x = centroid[0];
         //point.y = centroid[1];
         //point.z = centroid[2];
-        if(max_r < max_curve && min_g > min_z_comp){
-          point.x /= kv.second->size();
-          point.y /= kv.second->size();
-          point.z /= kv.second->size();
-          point.r = max_r;
-          point.g = min_g;
+        if(ur < max_curve && ug > min_z_comp){
+          
+          point.r = ur;
+          point.g = ug;
           point.b = 0;
   
         //std::array<float, 5> arr = {};
@@ -155,6 +204,8 @@ class SLAD
     n_.getParam("voxel_size", voxel_size);
     n_.getParam("max_angle_offset_deg", max_angle_offset);
     n_.getParam("max_curvature", max_curvature);
+    n_.getParam("save_to_file", save_to_file);
+    n_.getParam("filename", filename);
 
     minimum_z_component = 255*lerp(0.85, 1.0, std::cos(max_angle_offset*3.14/180));
     max_curvature_8bit = 255*lerp(0.0, 0.05, max_curvature);
@@ -173,7 +224,7 @@ class SLAD
   {
 
     ROS_INFO("meshcallback");
-    Eigen::Affine3f transform;
+    /*Eigen::Affine3f transform;
     try {
       transform = tf2::transformToEigen(tf_buffer->lookupTransform("dense_cam", "world",
                                 msg->header.stamp, ros::Duration(3.0)).transform).matrix().cast<float>();
@@ -182,24 +233,30 @@ class SLAD
         ROS_INFO("%s",e.what());
         
         return;
-      }
+      }*/
     
     ROS_INFO("msg size %lu", msg->mesh_blocks.size());
     
     Mesh2D mesh_grid(*msg, boxSize);
     PointCloudNormal::Ptr cloud = mesh_grid.getLandingCloud(minPoints, minimum_z_component, max_curvature_8bit);
-    auto t_cloud = sortCloudByLandingness(cloud, transform);
-    ROS_INFO("best spot %f %f %f", cloud->at(0).x, cloud->at(0).y, cloud->at(0).z);
-    cloud->header.frame_id = "dense_cam";
+    ROS_INFO("cloud size %lu", cloud->size());
+    /*auto t_cloud = sortCloudByLandingness(cloud, transform);
+    if(!t_cloud->empty())
+      ROS_INFO("best spot %f %f %f", cloud->at(0).x, cloud->at(0).y, cloud->at(0).z);
+    */
+    
     pcl_conversions::toPCL(msg->header.stamp, cloud->header.stamp);
     
     norm_pub_.publish(*cloud);
+    if(save_to_file && !cloud->empty())
+    pcl::io::savePCDFileASCII(std::string("/home/nvidia/AutonomousLanding/") + filename, *cloud);
     return;
     
   }
 
   PointCloudNormal::Ptr sortCloudByLandingness(PointCloudNormal::Ptr landing_cloud,
                               Eigen::Affine3f transform) {
+    if(landing_cloud->empty()) return PointCloudNormal::Ptr(new PointCloudNormal());
     ROS_INFO("best spot:");
     float best_cost = 1e10;
     geometry_msgs::Vector3 best_spot;
@@ -256,6 +313,8 @@ class SLAD
   float max_curvature;
   uint8_t max_curvature_8bit;
   uint8_t minimum_z_component;
+  bool save_to_file = false;
+  std::string filename;
 
   geometry_msgs::Transform current_transform;
   geometry_msgs::Transform ref_transform;

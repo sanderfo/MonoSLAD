@@ -31,6 +31,7 @@ class DenseVerifier
     public:
     DenseVerifier() 
     {
+      n_.getParam("depths_supplied", depths_supplied);
       n_.getParam("eval", eval);
       n_.getParam("eval_filename", eval_filename);
       n_.getParam("laplacian_ksize", laplacian_ksize);
@@ -93,13 +94,22 @@ class DenseVerifier
       refimg_pub3_ = it.advertise("ref_img3", 1);
       vbox_tf_pub = n_.advertise<geometry_msgs::TransformStamped>("cam_transform", 1);
 
-      imgsub_ = it.subscribe("cam", 60,
-                             &DenseVerifier::imageCallback, this);
-      
-                      
       tf_buffer = std::make_unique<tf2_ros::Buffer>();
       tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
 
+      if(depths_supplied)
+      {
+        depthsub_ = it.subscribe("cam", 10,
+                             &DenseVerifier::depthCallback, this);
+      
+      }
+      else {
+        imgsub_ = it.subscribe("cam", 60,
+                             &DenseVerifier::imageCallback, this);
+      }
+      
+                      
+      
       if(scale < 0.9) {
         K(0, 0) = scale*k_list[0];
         K(0, 2) = scale*k_list[2];
@@ -251,7 +261,67 @@ class DenseVerifier
       }
         
     }
+    void depthCallback(const sensor_msgs::ImageConstPtr& msg) {
+      cv::Mat depth_img = cv_bridge::toCvShare(msg)->image.clone();
+      int width = depth_img.cols;
+      int height = depth_img.rows;
 
+      geometry_msgs::Transform new_transform;
+      try {
+        new_transform =
+            tf_buffer
+                ->lookupTransform(cam_frame_topic, world_frame_topic,
+                                  msg->header.stamp, ros::Duration(7.0))
+                .transform;
+        
+      }
+      catch (tf2::TransformException& e) {
+        ROS_INFO("%s",e.what());
+        
+        return;
+      }
+      Eigen::Vector3d z_dir = tf2::transformToEigen(new_transform).rotation().col(2);
+        
+
+
+
+      PointCloudXYZ::Ptr ordered_pointcloud(new PointCloudXYZ);
+      ordered_pointcloud->height = height;
+      ordered_pointcloud->width = width;
+      ordered_pointcloud->is_dense = false;
+      ordered_pointcloud->resize(height * width);
+      
+      depth_img.forEach<float>([this, ordered_pointcloud](float &pixel, const int position[]) -> void {
+          pcl::PointXYZ point;
+          if(0.0 < pixel && pixel < 50.0)
+          {
+             
+            double rxy = pixel/(std::sqrt((position[1]-this->K(0,2))*(position[1]-this->K(0,2))
+                                        + (position[0] - this->K(1,2))*(position[0] - this->K(1,2))
+                                        + this->K(0,0)*this->K(0,0)));
+            point.x = (position[1]-this->K(0,2))*rxy;
+            point.y = (position[0]-this->K(1,2))*rxy;
+            point.z = this->K(0,0)*rxy;
+
+
+          
+          }
+          else {
+            point.z = NAN;
+          }
+          ordered_pointcloud->at(position[1], position[0]) = point;
+         
+          
+        });
+
+      PointCloudRGB::Ptr colored_pointcloud = normal_estimation(ordered_pointcloud, z_dir, width, height);
+      colored_pointcloud->header.frame_id = cam_frame_topic;
+
+      pcl_conversions::toPCL(msg->header.stamp, colored_pointcloud->header.stamp);
+        
+        
+      dense_pub_.publish(colored_pointcloud);
+    }
     
 
     private:
@@ -268,6 +338,8 @@ class DenseVerifier
     image_transport::Publisher refimg_pub2_;
     image_transport::Publisher refimg_pub3_;
     image_transport::Subscriber imgsub_;
+    image_transport::Subscriber depthsub_;
+    
     ros::Publisher cam_info;
     sensor_msgs::CameraInfo info;
 
@@ -316,6 +388,9 @@ class DenseVerifier
     
     std::string eval_filename;
     cv::FileStorage fs;
+
+    bool depths_supplied = false;
+    std::string depth_img_topic;
     void planeSweep() 
     {
       auto t0 = ros::Time::now();
@@ -488,6 +563,9 @@ class DenseVerifier
         
         cv::Mat_<float> depth_cv(height, width, depth_map.getDataPtr());
         ROS_INFO("using mask:");
+        if(eval){
+          depth_cv_to_tiff(depth_cv, ref_index, "unfiltered");
+        }
 
         // culling:
         cv::Mat depth_cv2(depth_cv);
@@ -508,6 +586,10 @@ class DenseVerifier
             }
           }
         });
+
+        if(eval){
+          depth_cv_to_tiff(depth_cv, ref_index, "culled");
+        }
         //depth_cv.setTo(0.0, bb);
         //depth_cv(cv::Range(0, height), cv::Range(0, bb[0])) = 0.0;
         //depth_cv(cv::Range(0, height), cv::Range(bb[1], width)) = 0.0;
@@ -563,6 +645,8 @@ class DenseVerifier
         //depth_cv = depth_median_blurred;
         int border_size = gaussian_ksize/2;
         depth_cv.setTo(0.0, grad_mask);
+        
+        
         depth_cv(cv::Range(0, border_size), cv::Range(0, width)) = 0.0;
         depth_cv(cv::Range(height-border_size, height), cv::Range(0, width)) = 0.0;
         depth_cv(cv::Range(0, height), cv::Range(0, border_size)) = 0.0;
@@ -635,9 +719,72 @@ class DenseVerifier
               }
         });
         
-        
-        //integral images
         Eigen::Vector3d z_dir = tf2::transformToEigen(transform_array[ref_index]).rotation().col(2);
+        PointCloudRGB::Ptr colored_pointcloud = normal_estimation(ordered_pointcloud, z_dir, width, height);
+        //integral images
+        
+        
+        cv::Mat depth_mat = depth_map_to_msg(depth_map, min_z, max_z);
+        sensor_msgs::ImagePtr depth_msg = cv_bridge::CvImage(image_headers[sweep_n/2], "mono8", depth_mat).toImageMsg();
+        
+        depth_pub_.publish(depth_msg);
+
+        
+        std_msgs::Header header;
+		    header.stamp = ref_stamp;
+        header.frame_id = cam_frame_topic;
+
+        image_headers[0].frame_id = cam_frame_topic;
+        image_headers[1].frame_id = cam_frame_topic;
+        //image_headers[2].frame_id = cam_frame_topic;
+
+        info.header.stamp = image_headers[0].stamp;
+        cam_info.publish(info);
+        
+
+        refimg_pub_.publish(cv_bridge::CvImage(image_headers[1], "mono8", refimg).toImageMsg());
+        refimg_pub2_.publish(cv_bridge::CvImage(image_headers[0], "mono8", image_sweeping_array[0]).toImageMsg());
+        //refimg_pub3_.publish(cv_bridge::CvImage(image_headers[2], "mono8", image_sweeping_array[2]).toImageMsg());
+        
+        if(write_to_file_debug)
+        {
+        std::string filename = "/home/nvidia/AutonomousLanding/test/" + std::to_string(image_headers[sweep_n/2].stamp.toNSec());
+        cv::imwrite(filename + "depth.png",  depth_mat);
+        if(!out_file.is_open()) out_file.open("/home/nvidia/AutonomousLanding/test/transforms.txt", std::ios_base::app);
+        for(int i = 0; i < sweep_n; i++){
+          filename = "/home/nvidia/AutonomousLanding/test/" + std::to_string(image_headers[i].stamp.toNSec());
+          cv::imwrite(filename + ".png",  image_sweeping_array[i]);
+
+          auto pose_eigen = tf2::transformToEigen(transform_array[i]).inverse(Eigen::Isometry);
+          auto eigen_rotation_q = Eigen::Quaterniond(pose_eigen.rotation());
+          std::string poses_string = "";
+          poses_string += filename + "\n";
+          poses_string += std::to_string(eigen_rotation_q.w()) + " " 
+                          + std::to_string(eigen_rotation_q.x()) + " "
+                          + std::to_string(eigen_rotation_q.y()) + " "
+                          + std::to_string(eigen_rotation_q.z()) + " "
+                          + std::to_string(pose_eigen.translation().x()) + " "
+                          + std::to_string(pose_eigen.translation().y()) + " "
+                          + std::to_string(pose_eigen.translation().z()) + "\n";
+                          
+
+          out_file << poses_string;
+        }
+        out_file.close();
+        }
+        
+
+        colored_pointcloud->header.frame_id = cam_frame_topic;
+
+        pcl_conversions::toPCL(ref_stamp, colored_pointcloud->header.stamp);
+        
+        
+        dense_pub_.publish(colored_pointcloud);
+        //ROS_INFO("total time %f", (ros::Time::now()- t0).toSec());
+    }
+
+    PointCloudRGB::Ptr normal_estimation(PointCloudXYZ::Ptr ordered_pointcloud, Eigen::Vector3d z_dir, int width, int height){
+      
         
         pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
         PointCloudRGB::Ptr colored_pointcloud (new PointCloudRGB);
@@ -690,8 +837,8 @@ class DenseVerifier
             if(depth_max < 1.0) continue;
             float dist_x = depth_max/K(0,0);
             float dist_y = depth_max/K(1,1);
-            rect_x = std::max((int)std::ceil(voxel_size/dist_x), 3);
-            rect_y = std::max((int)std::ceil(voxel_size/dist_y), 3);
+            rect_x = std::min(std::max((int)std::ceil(voxel_size/dist_x), 3), width/2);
+            rect_y = std::min(std::max((int)std::ceil(voxel_size/dist_y), 3), height/2);
 
             
             
@@ -760,65 +907,9 @@ class DenseVerifier
           }
 
         }
-        
-        cv::Mat depth_mat = depth_map_to_msg(depth_map, min_z, max_z);
-        sensor_msgs::ImagePtr depth_msg = cv_bridge::CvImage(image_headers[sweep_n/2], "mono8", depth_mat).toImageMsg();
-        
-        depth_pub_.publish(depth_msg);
-
-        
-        std_msgs::Header header;
-		    header.stamp = ref_stamp;
-        header.frame_id = cam_frame_topic;
-
-        image_headers[0].frame_id = cam_frame_topic;
-        image_headers[1].frame_id = cam_frame_topic;
-        //image_headers[2].frame_id = cam_frame_topic;
-
-        info.header.stamp = image_headers[0].stamp;
-        cam_info.publish(info);
-        
-
-        refimg_pub_.publish(cv_bridge::CvImage(image_headers[1], "mono8", refimg).toImageMsg());
-        refimg_pub2_.publish(cv_bridge::CvImage(image_headers[0], "mono8", image_sweeping_array[0]).toImageMsg());
-        //refimg_pub3_.publish(cv_bridge::CvImage(image_headers[2], "mono8", image_sweeping_array[2]).toImageMsg());
-        
-        if(write_to_file_debug)
-        {
-        std::string filename = "/home/nvidia/AutonomousLanding/test/" + std::to_string(image_headers[sweep_n/2].stamp.toNSec());
-        cv::imwrite(filename + "depth.png",  depth_mat);
-        if(!out_file.is_open()) out_file.open("/home/nvidia/AutonomousLanding/test/transforms.txt", std::ios_base::app);
-        for(int i = 0; i < sweep_n; i++){
-          filename = "/home/nvidia/AutonomousLanding/test/" + std::to_string(image_headers[i].stamp.toNSec());
-          cv::imwrite(filename + ".png",  image_sweeping_array[i]);
-
-          auto pose_eigen = tf2::transformToEigen(transform_array[i]).inverse(Eigen::Isometry);
-          auto eigen_rotation_q = Eigen::Quaterniond(pose_eigen.rotation());
-          std::string poses_string = "";
-          poses_string += filename + "\n";
-          poses_string += std::to_string(eigen_rotation_q.w()) + " " 
-                          + std::to_string(eigen_rotation_q.x()) + " "
-                          + std::to_string(eigen_rotation_q.y()) + " "
-                          + std::to_string(eigen_rotation_q.z()) + " "
-                          + std::to_string(pose_eigen.translation().x()) + " "
-                          + std::to_string(pose_eigen.translation().y()) + " "
-                          + std::to_string(pose_eigen.translation().z()) + "\n";
-                          
-
-          out_file << poses_string;
-        }
-        out_file.close();
-        }
-        
-
-        colored_pointcloud->header.frame_id = cam_frame_topic;
-
-        pcl_conversions::toPCL(ref_stamp, colored_pointcloud->header.stamp);
-        
-        
-        dense_pub_.publish(colored_pointcloud);
-        //ROS_INFO("total time %f", (ros::Time::now()- t0).toSec());
+      return colored_pointcloud;
     }
+
     auto lerp(double edge0, double edge1, double x) -> double {
       if(x < edge0) return 0.0;
       if(x > edge1) return 1.0;
